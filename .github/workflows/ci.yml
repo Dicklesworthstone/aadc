@@ -86,9 +86,9 @@ jobs:
           COVERAGE=$(jq -r '.data[0].files[] | select(.filename | endswith("main.rs")) | .summary.lines.percent // 0' cov.json)
           echo "## Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "Line coverage for main.rs: ${COVERAGE}%"
-          # Threshold: 70% minimum
-          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
-            echo "::error::Coverage ${COVERAGE}% is below 70% threshold"
+          # Threshold: 80% minimum (as specified in testing roadmap)
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below 80% threshold"
             exit 1
           fi
 
@@ -129,92 +129,14 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Run E2E tests
-        run: |
-          set -euo pipefail
-          AADC="./target/release/aadc"
+      - name: Run E2E tests - Basic CLI
+        run: ./tests/e2e_basic_cli.sh
 
-          echo "=== E2E Test Suite ==="
+      - name: Run E2E tests - CLI Options
+        run: ./tests/e2e_cli_options.sh
 
-          # Test 1: Basic stdin/stdout
-          echo "Test 1: stdin/stdout mode"
-          echo '+----+
-          | hi|
-          +----+' | $AADC | grep -q '| hi |' && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 2: Verbose mode
-          echo "Test 2: verbose mode"
-          echo '+--+
-          |x|
-          +--+' | $AADC -v 2>&1 | grep -q "Found" && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 3: File input
-          echo "Test 3: file input"
-          echo '+------+
-          | test|
-          +------+' > /tmp/test.txt
-          $AADC /tmp/test.txt | grep -q '| test |' && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 4: In-place editing
-          echo "Test 4: in-place editing"
-          echo '+------+
-          | edit|
-          +------+' > /tmp/inplace.txt
-          $AADC -i /tmp/inplace.txt
-          grep -q '| edit |' /tmp/inplace.txt && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 5: No diagrams (passthrough)
-          echo "Test 5: no diagrams passthrough"
-          echo "Hello world" | $AADC | grep -q "Hello world" && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 6: Unicode box drawing
-          echo "Test 6: Unicode box drawing"
-          echo '┌────┐
-          │ hi│
-          └────┘' | $AADC | grep -q '│ hi │' && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 7: Empty input
-          echo "Test 7: empty input"
-          echo "" | $AADC && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 8: Tab expansion
-          echo "Test 8: tab expansion"
-          printf '+----+\n|\thi|\n+----+' | $AADC -t 4 | grep -q '|' && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 9: --all flag
-          echo "Test 9: --all flag"
-          echo '| weak' | $AADC --all && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 10: --max-iters
-          echo "Test 10: --max-iters option"
-          echo '+--+
-          |x|
-          +--+' | $AADC --max-iters 5 && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 11: --min-score
-          echo "Test 11: --min-score option"
-          echo '+--+
-          |x|
-          +--+' | $AADC --min-score 0.3 && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 12: Already aligned (no changes)
-          echo "Test 12: already aligned"
-          ALIGNED='+----+
-          | ok |
-          +----+'
-          echo "$ALIGNED" | $AADC > /tmp/aligned_out.txt
-          echo "$ALIGNED" | diff - /tmp/aligned_out.txt && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 13: Help flag
-          echo "Test 13: help flag"
-          $AADC --help | grep -q "ASCII Art Diagram Corrector" && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          # Test 14: Version flag
-          echo "Test 14: version flag"
-          $AADC --version | grep -q "aadc" && echo "  PASS" || { echo "  FAIL"; exit 1; }
-
-          echo ""
-          echo "=== All E2E tests passed! ==="
+      - name: Run E2E tests - Fixtures
+        run: ./tests/e2e_fixtures.sh
 
   build:
     name: Build (${{ matrix.target }})

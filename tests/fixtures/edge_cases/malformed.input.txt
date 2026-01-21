@@ -1,0 +1,16 @@
+This has something that looks almost like a box but isn't:
+
++ incomplete
++ lines without
++ any structure
+
+Random punctuation that shouldn't be touched:
+* item one
+* item two
+* item three
+
+Partial table syntax:
+| column |
+(no other table parts)
+
+These fragments should pass through unchanged.

@@ -186,6 +186,30 @@ else
     log_fail "Exit code should be 0 on empty input" "0" "$EXIT_CODE"
 fi
 
+log_test "Exit code 0 on dry-run when no changes needed"
+INPUT="+---+
+| a |
++---+"
+echo "$INPUT" | $AADC -n >/dev/null 2>&1
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 0 ]; then
+    log_pass "Dry-run returns 0 when no changes needed"
+else
+    log_fail "Dry-run should return 0 when no changes needed" "0" "$EXIT_CODE"
+fi
+
+log_test "Exit code 3 on dry-run when changes would be made"
+INPUT="+---+
+| a|
++---+"
+EXIT_CODE=0
+echo "$INPUT" | $AADC -n >/dev/null 2>&1 || EXIT_CODE=$?
+if [ ${EXIT_CODE:-0} -eq 3 ]; then
+    log_pass "Dry-run returns 3 when changes would be made"
+else
+    log_fail "Dry-run should return 3 when changes would be made" "3" "$EXIT_CODE"
+fi
+
 # ============================================================================
 # ERROR HANDLING TESTS
 # ============================================================================
@@ -206,6 +230,16 @@ if [[ "$ERROR_MSG" == *"No such file"* ]] || [[ "$ERROR_MSG" == *"not found"* ]]
     log_pass "Helpful error message for non-existent file"
 else
     log_fail "Should provide helpful error message" "error message" "$ERROR_MSG"
+fi
+
+log_test "Exit code 4 for invalid UTF-8 input"
+printf '\xff' > "$TMP_DIR/invalid_utf8.bin"
+EXIT_CODE=0
+$AADC "$TMP_DIR/invalid_utf8.bin" >/dev/null 2>&1 || EXIT_CODE=$?
+if [ ${EXIT_CODE:-0} -eq 4 ]; then
+    log_pass "Exit code 4 for invalid UTF-8 input"
+else
+    log_fail "Invalid UTF-8 should return exit code 4" "4" "$EXIT_CODE"
 fi
 
 log_test "In-place editing requires file argument"
