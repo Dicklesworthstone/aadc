@@ -53,8 +53,8 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
-use rich_rust::{ColorSystem, Console};
 use rich_rust::terminal;
+use rich_rust::{ColorSystem, Console};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::fmt;
@@ -167,10 +167,7 @@ fn parse_single_range(s: &str) -> Result<LineRange, String> {
         }
 
         if start > end && end != usize::MAX {
-            return Err(format!(
-                "Invalid range: start ({}) > end ({})",
-                start, end
-            ));
+            return Err(format!("Invalid range: start ({}) > end ({})", start, end));
         }
 
         Ok(LineRange { start, end })
@@ -1717,7 +1714,12 @@ fn format_line_ranges(ranges: &[LineRange], total_lines: usize) -> String {
         })
         .sum();
 
-    format!("{} ({} of {} lines)", range_strs.join(", "), covered, total_lines)
+    format!(
+        "{} ({} of {} lines)",
+        range_strs.join(", "),
+        covered,
+        total_lines
+    )
 }
 
 /// Main correction entry point
@@ -1759,9 +1761,9 @@ fn correct_lines(
                         ))
                         .to_string(),
                 );
-                console.print(&styles.dim(
-                    "Passing through unchanged (use --all to force processing)",
-                ));
+                console.print(
+                    &styles.dim("Passing through unchanged (use --all to force processing)"),
+                );
             }
             return (lines, stats);
         }
@@ -2355,7 +2357,11 @@ fn process_input(
     if config.verbose {
         console.print(
             &styles
-                .bold(format!("Processing {} ({} lines)...", filename, lines.len()))
+                .bold(format!(
+                    "Processing {} ({} lines)...",
+                    filename,
+                    lines.len()
+                ))
                 .to_string(),
         );
     }
@@ -2473,7 +2479,13 @@ fn run(args: Args) -> Result<RunOutcome> {
         // Single file mode - same behavior as before
         let path = &args.inputs[0];
         let lines = read_file(path)?;
-        let result = process_input(lines, path.display().to_string(), &config, &console, &styles);
+        let result = process_input(
+            lines,
+            path.display().to_string(),
+            &config,
+            &console,
+            &styles,
+        );
         output_single_result(&args, &config, &console, &styles, result)
     } else {
         // Multiple file mode
@@ -2675,7 +2687,8 @@ fn output_multiple_results(
     for path in paths {
         match read_file(path) {
             Ok(lines) => {
-                let result = process_input(lines, path.display().to_string(), config, console, styles);
+                let result =
+                    process_input(lines, path.display().to_string(), config, console, styles);
 
                 if result.would_change {
                     any_would_change = true;
@@ -2723,10 +2736,9 @@ fn output_multiple_results(
                                     .to_string(),
                             );
                         } else {
-                            console.print(&styles.dim(format!(
-                                "{}: No changes needed",
-                                path.display()
-                            )));
+                            console.print(
+                                &styles.dim(format!("{}: No changes needed", path.display())),
+                            );
                         }
                     }
                 } else {
@@ -5177,11 +5189,7 @@ preset = "nonexistent"
         let config_path = temp.path().join("custom.toml");
         fs::write(&config_path, "max_iters = 25\n").unwrap();
 
-        let args = Args::parse_from([
-            "aadc",
-            "--config",
-            config_path.to_str().unwrap(),
-        ]);
+        let args = Args::parse_from(["aadc", "--config", config_path.to_str().unwrap()]);
         let config = create_config(&args).unwrap();
         assert_eq!(config.max_iters, 25);
     }
@@ -5212,12 +5220,7 @@ verbose = true
         let test_file = temp.path().join("test.txt");
         fs::write(&test_file, "").unwrap();
 
-        let args = Args::parse_from([
-            "aadc",
-            "--max-iters",
-            "5",
-            test_file.to_str().unwrap(),
-        ]);
+        let args = Args::parse_from(["aadc", "--max-iters", "5", test_file.to_str().unwrap()]);
         let config = create_config(&args).unwrap();
 
         // CLI value should override file
@@ -5446,7 +5449,10 @@ verbose = true
 
     #[test]
     fn test_format_line_ranges_open_ended() {
-        let ranges = vec![LineRange { start: 50, end: usize::MAX }];
+        let ranges = vec![LineRange {
+            start: 50,
+            end: usize::MAX,
+        }];
         let formatted = format_line_ranges(&ranges, 100);
         assert!(formatted.contains("50-"));
         assert!(formatted.contains("51 of 100 lines"));
@@ -5507,7 +5513,10 @@ Line 7 prose"#;
             "Diagram should be corrected when in range, got: {:?}",
             output[3]
         );
-        assert!(stats.blocks_modified >= 1, "At least one block should be modified");
+        assert!(
+            stats.blocks_modified >= 1,
+            "At least one block should be modified"
+        );
 
         // Test 2: Process lines 1-2 (before diagram) - diagram should NOT be corrected
         let mut config2 = make_test_config();
@@ -5517,8 +5526,14 @@ Line 7 prose"#;
         let (output2, stats2) = correct_lines(lines.clone(), &config2, &console, &styles);
 
         // Diagram should be unchanged (original input)
-        assert_eq!(output2[3], "| Hi|", "Diagram outside range should be unchanged");
-        assert_eq!(stats2.blocks_modified, 0, "No blocks should be modified when range excludes diagram");
+        assert_eq!(
+            output2[3], "| Hi|",
+            "Diagram outside range should be unchanged"
+        );
+        assert_eq!(
+            stats2.blocks_modified, 0,
+            "No blocks should be modified when range excludes diagram"
+        );
 
         // Test 3: Process lines 6-7 (after diagram) - diagram should NOT be corrected
         let mut config3 = make_test_config();
@@ -5528,7 +5543,13 @@ Line 7 prose"#;
         let (output3, stats3) = correct_lines(lines.clone(), &config3, &console, &styles);
 
         // Diagram should be unchanged
-        assert_eq!(output3[3], "| Hi|", "Diagram outside range should be unchanged");
-        assert_eq!(stats3.blocks_modified, 0, "No blocks should be modified when range excludes diagram");
+        assert_eq!(
+            output3[3], "| Hi|",
+            "Diagram outside range should be unchanged"
+        );
+        assert_eq!(
+            stats3.blocks_modified, 0,
+            "No blocks should be modified when range excludes diagram"
+        );
     }
 }
