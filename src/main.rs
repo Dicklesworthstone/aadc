@@ -7,6 +7,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use clap::ValueEnum;
 use clap::error::ErrorKind;
 use rich_rust::Console;
 use serde::Serialize;
@@ -80,6 +81,29 @@ fn exit_code_for_error(err: &anyhow::Error) -> i32 {
 // CLI Arguments
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Preset {
+    /// Conservative: only high-confidence edits (0.8)
+    Strict,
+    /// Balanced: reasonable confidence threshold (0.5)
+    Normal,
+    /// Aggressive: accept lower-confidence edits (0.3)
+    Aggressive,
+    /// Accept almost any edit (0.1)
+    Relaxed,
+}
+
+impl Preset {
+    fn min_score(self) -> f64 {
+        match self {
+            Self::Strict => 0.8,
+            Self::Normal => 0.5,
+            Self::Aggressive => 0.3,
+            Self::Relaxed => 0.1,
+        }
+    }
+}
+
 /// ASCII Art Diagram Corrector: fixes misaligned right borders in ASCII diagrams
 #[derive(Parser, Debug)]
 #[command(
@@ -98,6 +122,10 @@ struct Args {
     /// Edit file(s) in place
     #[arg(short = 'i', long)]
     in_place: bool,
+
+    /// Confidence threshold preset (conflicts with --min-score)
+    #[arg(long, short = 'P', value_enum, conflicts_with = "min_score")]
+    preset: Option<Preset>,
 
     /// Maximum iterations for correction loop
     #[arg(short = 'm', long, default_value = "10")]
@@ -148,6 +176,7 @@ struct Args {
 struct Config {
     max_iters: usize,
     min_score: f64,
+    preset: Option<Preset>,
     tab_width: usize,
     all_blocks: bool,
     verbose: bool,
@@ -163,6 +192,7 @@ impl From<&Args> for Config {
         Self {
             max_iters: args.max_iters,
             min_score: args.min_score,
+            preset: args.preset,
             tab_width: args.tab_width,
             all_blocks: args.all,
             verbose: args.verbose,
@@ -171,6 +201,15 @@ impl From<&Args> for Config {
             backup: args.backup,
             backup_ext: args.backup_ext.clone(),
             json: args.json,
+        }
+    }
+}
+
+impl Config {
+    fn effective_min_score(&self) -> f64 {
+        match self.preset {
+            Some(preset) => preset.min_score(),
+            None => self.min_score,
         }
     }
 }
@@ -721,9 +760,10 @@ fn correct_block(
         }
 
         // Filter by score
+        let min_score = config.effective_min_score();
         let valid_revisions: Vec<_> = revisions
             .into_iter()
-            .filter(|r| r.score(&analyzed, block.start) >= config.min_score)
+            .filter(|r| r.score(&analyzed, block.start) >= min_score)
             .collect();
 
         if valid_revisions.is_empty() {
@@ -996,6 +1036,16 @@ fn run(args: Args) -> Result<RunOutcome> {
     validate_args(&args)?;
     let config = Config::from(&args);
     let console = Console::new();
+
+    if config.verbose {
+        if let Some(preset) = config.preset {
+            console.print(&format!(
+                "[dim]Using preset: {:?} (min_score = {:.1})[/]",
+                preset,
+                config.effective_min_score()
+            ));
+        }
+    }
 
     // Determine if we're processing stdin or files
     if args.inputs.is_empty() {
@@ -1298,6 +1348,7 @@ mod tests {
         Args {
             inputs: vec![],
             in_place: false,
+            preset: None,
             max_iters: 10,
             min_score: 0.5,
             tab_width: 4,
@@ -1320,6 +1371,7 @@ mod tests {
         let args = Args::parse_from(["aadc"]);
         assert!(args.inputs.is_empty());
         assert!(!args.in_place);
+        assert!(args.preset.is_none());
         assert_eq!(args.max_iters, 10);
         assert_eq!(args.min_score, 0.5);
         assert_eq!(args.tab_width, 4);
@@ -1365,6 +1417,74 @@ mod tests {
             vec![PathBuf::from("file1.txt"), PathBuf::from("file2.txt")]
         );
         assert!(args.in_place);
+    }
+
+    #[test]
+    fn test_args_preset_long() {
+        let args = Args::parse_from(["aadc", "--preset", "strict", "file.txt"]);
+        assert_eq!(args.inputs, vec![PathBuf::from("file.txt")]);
+        assert!(matches!(args.preset, Some(Preset::Strict)));
+    }
+
+    #[test]
+    fn test_args_preset_short() {
+        let args = Args::parse_from(["aadc", "-P", "aggressive", "file.txt"]);
+        assert!(matches!(args.preset, Some(Preset::Aggressive)));
+    }
+
+    #[test]
+    fn test_args_preset_case_insensitive() {
+        let args = Args::parse_from(["aadc", "--preset", "RELAXED", "file.txt"]);
+        assert!(matches!(args.preset, Some(Preset::Relaxed)));
+    }
+
+    #[test]
+    fn test_args_preset_conflicts_with_min_score() {
+        let result = Args::try_parse_from([
+            "aadc",
+            "--preset",
+            "strict",
+            "--min-score",
+            "0.3",
+            "file.txt",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_effective_min_score_with_preset() {
+        let config = Config {
+            max_iters: 10,
+            min_score: 0.5,
+            preset: Some(Preset::Strict),
+            tab_width: 4,
+            all_blocks: false,
+            verbose: false,
+            diff: false,
+            dry_run: false,
+            backup: false,
+            backup_ext: ".bak".to_string(),
+            json: false,
+        };
+        assert_eq!(config.effective_min_score(), 0.8);
+    }
+
+    #[test]
+    fn test_effective_min_score_without_preset() {
+        let config = Config {
+            max_iters: 10,
+            min_score: 0.42,
+            preset: None,
+            tab_width: 4,
+            all_blocks: false,
+            verbose: false,
+            diff: false,
+            dry_run: false,
+            backup: false,
+            backup_ext: ".bak".to_string(),
+            json: false,
+        };
+        assert_eq!(config.effective_min_score(), 0.42);
     }
 
     #[test]
@@ -2560,6 +2680,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2606,6 +2727,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2633,6 +2755,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,

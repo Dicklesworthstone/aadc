@@ -15,6 +15,10 @@
   <em>Fix misaligned right borders in ASCII diagrams with a single command</em>
 </p>
 
+<div align="center">
+  <img src="aadc_illustration.webp" alt="aadc - ASCII Art Diagram Corrector">
+</div>
+
 <p align="center">
   <a href="#installation">Install</a> •
   <a href="#quick-start">Quick Start</a> •
@@ -230,8 +234,23 @@ aadc [OPTIONS] [FILE]
 | `--tab-width` | `-t` | 4 | Tab expansion width in spaces |
 | `--all` | `-a` | false | Process all diagram-like blocks, even low-confidence ones |
 | `--verbose` | `-v` | false | Show correction progress |
+| `--diff` | `-d` | false | Show unified diff instead of full output |
+| `--dry-run` | `-n` | false | Preview changes without modifying files (exit 3 if changes would be made) |
+| `--backup` |  | false | Create backup file before in-place editing (requires `--in-place`) |
+| `--backup-ext` |  | `.bak` | Extension for backup files (requires `--backup`) |
+| `--json` |  | false | Output results as JSON (conflicts with `--verbose`/`--diff`) |
 | `--help` | `-h` | | Print help |
 | `--version` | `-V` | | Print version |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error (file not found, permission denied, I/O error) |
+| 2 | Invalid command-line arguments |
+| 3 | Dry-run mode: changes would be made |
+| 4 | Parse error (invalid UTF-8 or binary input) |
 
 ### Examples
 
