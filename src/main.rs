@@ -61,7 +61,6 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exit Codes
@@ -1622,10 +1621,11 @@ fn correct_block(
         if valid_revisions.is_empty() {
             // Converged
             if config.verbose && iteration > 0 {
-                console.print(&format!(
-                    "{}",
-                    styles.dim(format!("    Converged after {} iteration(s)", iteration))
-                ));
+                console.print(
+                    &styles
+                        .dim(format!("    Converged after {} iteration(s)", iteration))
+                        .to_string(),
+                );
             }
             break;
         }
@@ -1638,14 +1638,15 @@ fn correct_block(
         total_revisions += valid_revisions.len();
 
         if config.verbose {
-            console.print(&format!(
-                "{}",
-                styles.dim(format!(
-                    "    Iteration {}: applied {} revision(s)",
-                    iteration + 1,
-                    valid_revisions.len()
-                ))
-            ));
+            console.print(
+                &styles
+                    .dim(format!(
+                        "    Iteration {}: applied {} revision(s)",
+                        iteration + 1,
+                        valid_revisions.len()
+                    ))
+                    .to_string(),
+            );
         }
     }
 
@@ -1732,13 +1733,14 @@ fn correct_lines(
     // Show line range info in verbose mode
     if config.verbose {
         if let Some(ref ranges) = config.lines {
-            console.print(&format!(
-                "{}",
-                styles.header(format!(
-                    "Line ranges: {}",
-                    format_line_ranges(ranges, total_lines)
-                ))
-            ));
+            console.print(
+                &styles
+                    .header(format!(
+                        "Line ranges: {}",
+                        format_line_ranges(ranges, total_lines)
+                    ))
+                    .to_string(),
+            );
         }
     }
 
@@ -1746,16 +1748,17 @@ fn correct_lines(
         let scan = quick_scan_for_diagrams(&lines);
         if !scan.likely_has_diagrams {
             if config.verbose {
-                console.print(&format!(
-                    "{}",
-                    styles.dim(format!(
-                        "Quick scan: no diagrams detected ({}/{} lines, {:.1}% box chars < {:.1}% threshold)",
-                        scan.lines_with_box_chars,
-                        scan.lines_scanned,
-                        scan.ratio * 100.0,
-                        QUICK_SCAN_THRESHOLD * 100.0
-                    ))
-                ));
+                console.print(
+                    &styles
+                        .dim(format!(
+                            "Quick scan: no diagrams detected ({}/{} lines, {:.1}% box chars < {:.1}% threshold)",
+                            scan.lines_with_box_chars,
+                            scan.lines_scanned,
+                            scan.ratio * 100.0,
+                            QUICK_SCAN_THRESHOLD * 100.0
+                        ))
+                        .to_string(),
+                );
                 console.print(&styles.dim(
                     "Passing through unchanged (use --all to force processing)",
                 ));
@@ -1775,10 +1778,11 @@ fn correct_lines(
     stats.blocks_found = blocks.len();
 
     if config.verbose {
-        console.print(&format!(
-            "{}",
-            styles.header(format!("Found {} diagram block(s)", blocks.len()))
-        ));
+        console.print(
+            &styles
+                .header(format!("Found {} diagram block(s)", blocks.len()))
+                .to_string(),
+        );
     }
 
     // Correct each block
@@ -1787,31 +1791,33 @@ fn correct_lines(
         if let Some(ref ranges) = config.lines {
             if !block_overlaps_ranges(block, ranges) {
                 if config.verbose {
-                    console.print(&format!(
-                        "{}",
-                        styles.dim(format!(
-                            "  Block {}: lines {}-{} (skipped: outside line ranges)",
-                            i + 1,
-                            block.start + 1,
-                            block.end
-                        ))
-                    ));
+                    console.print(
+                        &styles
+                            .dim(format!(
+                                "  Block {}: lines {}-{} (skipped: outside line ranges)",
+                                i + 1,
+                                block.start + 1,
+                                block.end
+                            ))
+                            .to_string(),
+                    );
                 }
                 continue;
             }
         }
 
         if config.verbose {
-            console.print(&format!(
-                "{}",
-                styles.block(format!(
-                    "  Block {}: lines {}-{} (confidence: {:.0}%)",
-                    i + 1,
-                    block.start + 1,
-                    block.end,
-                    block.confidence * 100.0
-                ))
-            ));
+            console.print(
+                &styles
+                    .block(format!(
+                        "  Block {}: lines {}-{} (confidence: {:.0}%)",
+                        i + 1,
+                        block.start + 1,
+                        block.end,
+                        block.confidence * 100.0
+                    ))
+                    .to_string(),
+            );
         }
 
         let revisions = correct_block(&mut lines, block, config, console, styles);
@@ -1870,10 +1876,11 @@ fn discover_recursive_files(
 
         if !path.is_dir() {
             if config.verbose {
-                console.print(&format!(
-                    "{}",
-                    styles.dim(format!("Warning: path does not exist: {}", path.display()))
-                ));
+                console.print(
+                    &styles
+                        .dim(format!("Warning: path does not exist: {}", path.display()))
+                        .to_string(),
+                );
             }
             continue;
         }
@@ -2346,10 +2353,11 @@ fn process_input(
     styles: &VerboseStyle,
 ) -> FileResult {
     if config.verbose {
-        console.print(&format!(
-            "{}",
-            styles.bold(format!("Processing {} ({} lines)...", filename, lines.len()))
-        ));
+        console.print(
+            &styles
+                .bold(format!("Processing {} ({} lines)...", filename, lines.len()))
+                .to_string(),
+        );
     }
 
     let original = lines.clone();
@@ -2422,14 +2430,15 @@ fn run(args: Args) -> Result<RunOutcome> {
 
     if config.verbose {
         if let Some(preset) = config.preset {
-            console.print(&format!(
-                "{}",
-                styles.dim(format!(
-                    "Using preset: {:?} (min_score = {:.1})",
-                    preset,
-                    config.effective_min_score()
-                ))
-            ));
+            console.print(
+                &styles
+                    .dim(format!(
+                        "Using preset: {:?} (min_score = {:.1})",
+                        preset,
+                        config.effective_min_score()
+                    ))
+                    .to_string(),
+            );
         }
     }
 
@@ -2489,13 +2498,14 @@ fn output_single_result(
     } else if config.diff {
         output_diff(&result, false)?;
         if config.verbose {
-            console.print(&format!(
-                "{}",
-                styles.success(format!(
-                    "Diff: {} block(s), {} revision(s)",
-                    result.stats.blocks_modified, result.stats.total_revisions
-                ))
-            ));
+            console.print(
+                &styles
+                    .success(format!(
+                        "Diff: {} block(s), {} revision(s)",
+                        result.stats.blocks_modified, result.stats.total_revisions
+                    ))
+                    .to_string(),
+            );
         }
     } else if args.in_place {
         // Must have a file path for in-place
@@ -2507,10 +2517,11 @@ fn output_single_result(
         if config.backup {
             let backup_path = create_backup(path, &config.backup_ext)?;
             if config.verbose {
-                console.print(&format!(
-                    "{}",
-                    styles.dim(format!("Created backup: {}", backup_path.display()))
-                ));
+                console.print(
+                    &styles
+                        .dim(format!("Created backup: {}", backup_path.display()))
+                        .to_string(),
+                );
             }
         }
 
@@ -2519,13 +2530,14 @@ fn output_single_result(
             .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
         if config.verbose {
-            console.print(&format!(
-                "{}",
-                styles.success(format!(
-                    "Modified {} block(s), {} revision(s) applied",
-                    result.stats.blocks_modified, result.stats.total_revisions
-                ))
-            ));
+            console.print(
+                &styles
+                    .success(format!(
+                        "Modified {} block(s), {} revision(s) applied",
+                        result.stats.blocks_modified, result.stats.total_revisions
+                    ))
+                    .to_string(),
+            );
         }
     } else {
         // Stdout mode
@@ -2535,13 +2547,14 @@ fn output_single_result(
         }
 
         if config.verbose {
-            console.print(&format!(
-                "{}",
-                styles.success(format!(
-                    "Processed {} block(s), {} revision(s) applied",
-                    result.stats.blocks_found, result.stats.total_revisions
-                ))
-            ));
+            console.print(
+                &styles
+                    .success(format!(
+                        "Processed {} block(s), {} revision(s) applied",
+                        result.stats.blocks_found, result.stats.total_revisions
+                    ))
+                    .to_string(),
+            );
         }
     }
 
@@ -2617,22 +2630,25 @@ fn output_dry_run_single(
 
     if config.verbose {
         if result.would_change {
-            console.print(&format!(
-                "{}",
-                styles.block(format!("Would modify: {}", result.filename))
-            ));
-            console.print(&format!(
-                "{}",
-                styles.dim(format!(
-                    "  {} block(s), {} revision(s)",
-                    result.stats.blocks_modified, result.stats.total_revisions
-                ))
-            ));
+            console.print(
+                &styles
+                    .block(format!("Would modify: {}", result.filename))
+                    .to_string(),
+            );
+            console.print(
+                &styles
+                    .dim(format!(
+                        "  {} block(s), {} revision(s)",
+                        result.stats.blocks_modified, result.stats.total_revisions
+                    ))
+                    .to_string(),
+            );
         } else {
-            console.print(&format!(
-                "{}",
-                styles.success(format!("No changes needed: {}", result.filename))
-            ));
+            console.print(
+                &styles
+                    .success(format!("No changes needed: {}", result.filename))
+                    .to_string(),
+            );
         }
     }
 
@@ -2682,10 +2698,11 @@ fn output_multiple_results(
                     if config.backup {
                         let backup_path = create_backup(path, &config.backup_ext)?;
                         if config.verbose {
-                            console.print(&format!(
-                                "{}",
-                                styles.dim(format!("Created backup: {}", backup_path.display()))
-                            ));
+                            console.print(
+                                &styles
+                                    .dim(format!("Created backup: {}", backup_path.display()))
+                                    .to_string(),
+                            );
                         }
                     }
 
@@ -2695,15 +2712,16 @@ fn output_multiple_results(
 
                     if config.verbose {
                         if result.would_change {
-                            console.print(&format!(
-                                "{}",
-                                styles.success(format!(
-                                    "{}: {} block(s), {} revision(s) applied",
-                                    path.display(),
-                                    result.stats.blocks_modified,
-                                    result.stats.total_revisions
-                                ))
-                            ));
+                            console.print(
+                                &styles
+                                    .success(format!(
+                                        "{}: {} block(s), {} revision(s) applied",
+                                        path.display(),
+                                        result.stats.blocks_modified,
+                                        result.stats.total_revisions
+                                    ))
+                                    .to_string(),
+                            );
                         } else {
                             console.print(&styles.dim(format!(
                                 "{}: No changes needed",
@@ -2737,17 +2755,18 @@ fn output_multiple_results(
 
     // Print summary for multiple files in verbose mode
     if config.verbose && paths.len() > 1 {
-        console.print(&format!(
-            "{}",
-            styles.bold(format!(
-                "\nSummary: {} file(s) processed, {} changed, {} block(s), {} revision(s), {} error(s)",
-                total_files_processed,
-                total_files_changed,
-                total_blocks_modified,
-                total_revisions,
-                errors.len()
-            ))
-        ));
+        console.print(
+            &styles
+                .bold(format!(
+                    "\nSummary: {} file(s) processed, {} changed, {} block(s), {} revision(s), {} error(s)",
+                    total_files_processed,
+                    total_files_changed,
+                    total_blocks_modified,
+                    total_revisions,
+                    errors.len()
+                ))
+                .to_string(),
+        );
     }
 
     // If any files had errors, report them
