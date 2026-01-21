@@ -1,0 +1,10 @@
+This is a plain text document.
+
+It contains no ASCII diagrams at all.
+Just regular prose and some code:
+
+    fn main() {
+        println!("Hello, world!");
+    }
+
+And that's it.

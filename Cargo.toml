@@ -1,0 +1,22 @@
+[package]
+name = "aadc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "ASCII Art Diagram Corrector: fixes misaligned right borders in ASCII diagrams"
+repository = "https://github.com/Dicklesworthstone/aadc"
+keywords = ["ascii", "diagram", "alignment", "cli", "terminal"]
+categories = ["command-line-utilities", "text-processing"]
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+rich_rust = { path = "/dp/rich_rust" }
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit for better optimization
+panic = "abort"     # Smaller binary, no unwinding overhead
+strip = true        # Remove debug symbols

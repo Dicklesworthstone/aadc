@@ -1,0 +1,27 @@
+# System Architecture
+
+This document describes our system architecture.
+
+## Overview
+
+The system consists of three main components:
+
+┌────────────────┐
+│ API Gateway    │
+│ Handles all    │
+│ incoming reqs  │
+└────────────────┘
+
+The gateway routes requests to appropriate services.
+
+## Data Flow
+
++--------+     +----------+
+| Client|  →  | Server   |
++--------+     +----------+
+
+This shows the basic request flow.
+
+## Conclusion
+
+The architecture is designed for scalability.

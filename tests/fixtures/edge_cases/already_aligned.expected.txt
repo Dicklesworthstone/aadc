@@ -1,0 +1,10 @@
++------------------+
+| Already Aligned  |
+| No Changes       |
+| Needed Here      |
++------------------+
+
+┌────────────────  ┐
+│ Also Perfect     │
+│ Unicode Box      │
+└────────────────  ┘

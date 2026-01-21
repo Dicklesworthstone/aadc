@@ -1,0 +1,5 @@
+┏━━━━━━━━━━━━━━━━━━┓
+┃ API Gateway┃
+┃ Authentication   ┃
+┃ Rate Limiting┃
+┗━━━━━━━━━━━━━━━━━━┛

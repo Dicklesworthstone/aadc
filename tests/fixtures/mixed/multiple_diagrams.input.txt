@@ -1,0 +1,25 @@
+Here are some diagrams:
+
+First diagram:
++------------+
+| Component A|
+| Status: OK|
++------------+
+
+Some text between them.
+
+Second diagram:
+┌──────────────┐
+│ Component B│
+│ Status: WARN │
+└──────────────┘
+
+More text.
+
+Third diagram:
+╔════════════════╗
+║ Component C║
+║ Status: ERROR  ║
+╚════════════════╝
+
+End of document.

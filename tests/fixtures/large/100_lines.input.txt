@@ -1,0 +1,115 @@
+# Large Document with Multiple Diagrams
+
+This document tests handling of larger files with many diagram blocks.
+
+## Section 1: User Flow
+
++----------------------+
+| User Registration|
+| - Enter email|
+| - Set password       |
+| - Verify account|
++----------------------+
+
+Some explanatory text about the registration process.
+
+## Section 2: Authentication
+
+┌──────────────────────┐
+│ Login Flow│
+│ 1. Check credentials │
+│ 2. Generate token│
+│ 3. Set session│
+└──────────────────────┘
+
+More text describing authentication.
+
+## Section 3: Data Processing
+
+╔══════════════════════╗
+║ Data Pipeline║
+║ Extract → Transform  ║
+║ → Load into DB║
+╚══════════════════════╝
+
+Explanation of the ETL process.
+
+## Section 4: API Endpoints
+
++----------+     +------------+     +----------+
+| Client|  →  | API Gateway|  →  | Backend|
++----------+     +------------+     +----------+
+
+The client communicates through the gateway.
+
+## Section 5: Database Schema
+
+┌────────────────┐     ┌────────────────┐
+│ Users Table│     │ Orders Table│
+│ - id           │     │ - id           │
+│ - email│     │ - user_id│
+│ - created_at   │     │ - total│
+└────────────────┘     └────────────────┘
+
+Schema description continues here.
+
+## Section 6: Monitoring
+
+╭──────────────────╮
+│ Metrics│
+│ - CPU Usage      │
+│ - Memory│
+│ - Requests/sec│
+╰──────────────────╯
+
+Monitoring setup details.
+
+## Section 7: Deployment
+
++------------------+
+| Production│
+| - 3 app servers  |
+| - 2 DB replicas│
+| - 1 cache node│
++------------------+
+
+Deployment architecture.
+
+## Section 8: Error Handling
+
+┌────────────────────┐
+│ Error Types│
+│ - Validation       │
+│ - Authentication│
+│ - Authorization│
+│ - Server Error│
+└────────────────────┘
+
+How errors are handled.
+
+## Section 9: Caching Strategy
+
+╔════════════════════╗
+║ Cache Layers║
+║ L1: In-memory      ║
+║ L2: Redis║
+║ L3: CDN║
+╚════════════════════╝
+
+Caching explanation.
+
+## Section 10: Security
+
++--------------------+
+| Security Measures|
+| - Rate limiting    |
+| - Input validation|
+| - HTTPS only       |
+| - JWT tokens|
++--------------------+
+
+Security best practices.
+
+## Conclusion
+
+This document demonstrated multiple diagram types across 100+ lines.
