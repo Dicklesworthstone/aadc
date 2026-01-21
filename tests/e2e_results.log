@@ -1,0 +1,210 @@
+================================================================================
+AADC E2E Test Results
+================================================================================
+Run Time:    2026-01-21 05:07:43
+Host:        threadripperje
+Directory:   /dp/aadc
+Filter:      (none)
+Verbose:     false
+================================================================================
+
+[05:07:43] [INFO] Building aadc in release mode...
+
+--- Build Output ---
+    Finished `release` profile [optimized] target(s) in 0.11s
+[05:07:43] [PASS] Build successful
+[05:07:43] [INFO] Starting test suites...
+[05:07:43] [SUITE] Running: cargo unit tests
+
+--- Cargo Tests ---
+    Blocking waiting for file lock on artifact directory
+
+[05:12:42] [FAIL] Cargo tests: 0 passed, 0 failed (298s)
+[05:12:42] [SUITE] Running: e2e_basic_cli
+
+--- Suite: e2e_basic_cli ---
+Building aadc...
+
+=== STDIN/STDOUT TESTS ===
+[1;33mTEST[0m: Reading from stdin, writing to stdout
+[0;32mPASS[0m: stdin → stdout works correctly
+[1;33mTEST[0m: Empty stdin produces empty stdout
+[0;32mPASS[0m: Empty stdin → empty stdout
+[1;33mTEST[0m: Stdin with no diagrams passes through unchanged
+[0;32mPASS[0m: Non-diagram content passes through unchanged
+
+=== FILE INPUT TESTS ===
+[1;33mTEST[0m: Reading from file argument
+[0;32mPASS[0m: File input works correctly
+[1;33mTEST[0m: Reading Unicode file
+[0;32mPASS[0m: Unicode file input works correctly
+[1;33mTEST[0m: Reading large file (100+ lines)
+[0;32mPASS[0m: Large file input works correctly
+
+=== IN-PLACE EDITING TESTS ===
+[1;33mTEST[0m: In-place editing with -i flag
+[0;32mPASS[0m: In-place editing works correctly
+[1;33mTEST[0m: In-place editing with --in-place flag
+[0;32mPASS[0m: In-place editing with --in-place works
+[1;33mTEST[0m: In-place editing preserves file when no changes needed
+[0;32mPASS[0m: In-place editing preserves unchanged files
+
+=== EXIT CODE TESTS ===
+[1;33mTEST[0m: Exit code 0 on success (stdin)
+[0;32mPASS[0m: Exit code 0 on successful stdin processing
+[1;33mTEST[0m: Exit code 0 on success (file)
+[0;32mPASS[0m: Exit code 0 on successful file processing
+[1;33mTEST[0m: Exit code 0 on empty input
+[0;32mPASS[0m: Exit code 0 on empty input
+[1;33mTEST[0m: Exit code 0 on dry-run when no changes needed
+[0;32mPASS[0m: Dry-run returns 0 when no changes needed
+[1;33mTEST[0m: Exit code 3 on dry-run when changes would be made
+[0;32mPASS[0m: Dry-run returns 3 when changes would be made
+
+=== ERROR HANDLING TESTS ===
+[1;33mTEST[0m: Non-zero exit code for non-existent file
+[0;32mPASS[0m: Non-zero exit code for non-existent file
+[1;33mTEST[0m: Error message for non-existent file
+[0;32mPASS[0m: Helpful error message for non-existent file
+[1;33mTEST[0m: Exit code 4 for invalid UTF-8 input
+[0;32mPASS[0m: Exit code 4 for invalid UTF-8 input
+[1;33mTEST[0m: In-place editing requires file argument
+[0;32mPASS[0m: In-place with stdin handled (behavior documented)
+
+============================================
+SUMMARY: [0;32m18 passed[0m, [0;31m0 failed[0m
+============================================
+
+[05:12:42] [PASS] Suite e2e_basic_cli: 18 passed, 0 failed (0s)
+[05:12:42] [SUITE] Running: e2e_cli_options
+
+--- Suite: e2e_cli_options ---
+Building aadc...
+
+=== --max-iters TESTS ===
+[1;33mTEST[0m: --max-iters default (10)
+[0;32mPASS[0m: --max-iters default works
+[1;33mTEST[0m: --max-iters 1 (may not fully converge)
+[0;32mPASS[0m: --max-iters 1 produces output
+[1;33mTEST[0m: --max-iters with short flag -m
+[0;32mPASS[0m: -m short flag works
+
+=== --min-score TESTS ===
+[1;33mTEST[0m: --min-score 0.1 (aggressive - more corrections)
+[0;32mPASS[0m: --min-score 0.1 works
+[1;33mTEST[0m: --min-score 0.9 (conservative - fewer corrections)
+[0;32mPASS[0m: --min-score 0.9 works
+[1;33mTEST[0m: --min-score with short flag -s
+[0;32mPASS[0m: -s short flag works
+
+=== --tab-width TESTS ===
+[1;33mTEST[0m: --tab-width 4 (default)
+[0;32mPASS[0m: --tab-width 4 works
+[1;33mTEST[0m: --tab-width 2
+[0;32mPASS[0m: --tab-width 2 works
+[1;33mTEST[0m: --tab-width with short flag -t
+[0;32mPASS[0m: -t short flag works
+
+=== --all TESTS ===
+[1;33mTEST[0m: --all processes low-confidence blocks
+[0;32mPASS[0m: --all flag works
+[1;33mTEST[0m: --all with short flag -a
+[0;32mPASS[0m: -a short flag works
+
+=== --verbose TESTS ===
+[1;33mTEST[0m: --verbose outputs progress information
+[0;32mPASS[0m: --verbose shows progress info
+[1;33mTEST[0m: --verbose with short flag -v
+[0;32mPASS[0m: -v short flag works
+[1;33mTEST[0m: --verbose with multiple blocks
+[0;32mPASS[0m: --verbose with multiple blocks works
+
+=== COMBINED OPTIONS TESTS ===
+[1;33mTEST[0m: Multiple options combined
+[0;32mPASS[0m: Multiple options work together
+[1;33mTEST[0m: All options with file input
+[0;32mPASS[0m: All options with file input work
+[1;33mTEST[0m: In-place with options
+[0;32mPASS[0m: In-place editing with options works
+
+============================================
+SUMMARY: [0;32m17 passed[0m, [0;31m0 failed[0m
+============================================
+
+[05:12:42] [PASS] Suite e2e_cli_options: 17 passed, 0 failed (0s)
+[05:12:42] [SUITE] Running: e2e_fixtures
+
+--- Suite: e2e_fixtures ---
+Building aadc...
+
+=== ASCII FIXTURES ===
+[1;33mTEST[0m: ascii/nested_boxes
+[0;32mPASS[0m: ascii/nested_boxes
+[1;33mTEST[0m: ascii/simple_box
+[0;32mPASS[0m: ascii/simple_box
+
+=== EDGE_CASES FIXTURES ===
+[1;33mTEST[0m: edge_cases/already_aligned
+[0;32mPASS[0m: edge_cases/already_aligned
+[1;33mTEST[0m: edge_cases/empty
+[0;32mPASS[0m: edge_cases/empty
+[1;33mTEST[0m: edge_cases/malformed
+[0;32mPASS[0m: edge_cases/malformed
+[1;33mTEST[0m: edge_cases/no_diagrams
+[0;32mPASS[0m: edge_cases/no_diagrams
+[1;33mTEST[0m: edge_cases/single_line
+[0;32mPASS[0m: edge_cases/single_line
+[1;33mTEST[0m: edge_cases/tabs
+[0;32mPASS[0m: edge_cases/tabs
+[1;33mTEST[0m: edge_cases/whitespace_only
+[0;32mPASS[0m: edge_cases/whitespace_only
+
+=== LARGE FIXTURES ===
+[1;33mTEST[0m: large/100_lines
+[0;32mPASS[0m: large/100_lines
+[1;33mTEST[0m: large/cjk_content
+[0;32mPASS[0m: large/cjk_content
+
+=== MIXED FIXTURES ===
+[1;33mTEST[0m: mixed/multiple_diagrams
+[0;32mPASS[0m: mixed/multiple_diagrams
+[1;33mTEST[0m: mixed/prose_with_diagram
+[0;32mPASS[0m: mixed/prose_with_diagram
+
+=== UNICODE FIXTURES ===
+[1;33mTEST[0m: unicode/double_borders
+[0;32mPASS[0m: unicode/double_borders
+[1;33mTEST[0m: unicode/heavy_borders
+[0;32mPASS[0m: unicode/heavy_borders
+[1;33mTEST[0m: unicode/light_borders
+[0;32mPASS[0m: unicode/light_borders
+[1;33mTEST[0m: unicode/rounded_corners
+[0;32mPASS[0m: unicode/rounded_corners
+
+=== DIFF FLAG TESTS ===
+[1;33mTEST[0m: Diff: outputs unified diff when changes made
+[0;32mPASS[0m: Diff: outputs unified diff when changes made
+[1;33mTEST[0m: Diff: no output when no changes
+[0;32mPASS[0m: Diff: no output when no changes
+[1;33mTEST[0m: Diff: works with -v verbose flag
+[0;32mPASS[0m: Diff: works with -v verbose flag
+
+============================================
+SUMMARY: [0;32m20 passed[0m, [0;31m0 failed[0m
+============================================
+
+[05:12:42] [PASS] Suite e2e_fixtures: 20 passed, 0 failed (0s)
+[05:12:42] [RESULT] E2E Test Results Summary
+[05:12:42] [RESULT]   Total Passed:  55
+[05:12:42] [RESULT]   Total Failed:  0
+[05:12:42] [RESULT]   Total Skipped: 0
+
+================================================================================
+FINAL SUMMARY
+================================================================================
+Total Passed:  55
+Total Failed:  0
+Total Skipped: 0
+Overall Exit:  1
+================================================================================
+[05:12:42] [RESULT] Some tests failed - see /dp/aadc/tests/e2e_results.log for details
