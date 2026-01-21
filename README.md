@@ -15,6 +15,13 @@
   <em>Fix misaligned right borders in ASCII diagrams with a single command</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/Dicklesworthstone/aadc/actions/workflows/ci.yml"><img src="https://github.com/Dicklesworthstone/aadc/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/Dicklesworthstone/aadc"><img src="https://codecov.io/gh/Dicklesworthstone/aadc/branch/main/graph/badge.svg" alt="Coverage"></a>
+  <a href="https://crates.io/crates/aadc"><img src="https://img.shields.io/crates/v/aadc.svg" alt="Crates.io"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
 <div align="center">
   <img src="aadc_illustration.webp" alt="aadc - ASCII Art Diagram Corrector">
 </div>
@@ -404,6 +411,59 @@ aadc --all --min-score 0.1 diagram.txt
 A: Use verbose mode:
 ```bash
 aadc -v diagram.txt
+```
+
+---
+
+## Testing
+
+The project has comprehensive test coverage with unit tests, integration tests, and E2E tests.
+
+### Quick Test Commands
+
+```bash
+# Run all tests
+cargo test
+
+# Run unit tests only
+cargo test --lib
+
+# Run integration tests
+cargo test --test integration
+
+# Run E2E bash test suites
+./tests/e2e_basic_cli.sh      # Stdin/stdout, file I/O, exit codes
+./tests/e2e_cli_options.sh    # CLI flags and options
+./tests/e2e_fixtures.sh       # Fixture-based tests with expected outputs
+
+# Run comprehensive E2E runner with logging
+./tests/e2e_runner.sh         # All suites with detailed log
+./tests/e2e_runner.sh -v      # Verbose mode
+./tests/e2e_runner.sh -f cli  # Filter by pattern
+
+# Check code quality
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+```
+
+### Test Categories
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| Unit Tests | `cargo test` | 138 tests covering core logic |
+| Integration | `cargo test --test integration` | 20 E2E Rust tests |
+| E2E Basic | `./tests/e2e_basic_cli.sh` | Stdin, files, exit codes |
+| E2E Options | `./tests/e2e_cli_options.sh` | CLI flags |
+| E2E Fixtures | `./tests/e2e_fixtures.sh` | Input/expected pairs |
+
+### Coverage
+
+Coverage reports are generated in CI and uploaded to Codecov. The minimum threshold is 80% line coverage.
+
+```bash
+# Generate local coverage report (requires cargo-llvm-cov)
+cargo llvm-cov --html
+open target/llvm-cov/html/index.html
 ```
 
 ---

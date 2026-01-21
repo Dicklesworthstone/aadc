@@ -162,13 +162,17 @@ aadc --all diagram.txt
 
 | Argument | Short | Description | Default |
 |----------|-------|-------------|---------|
-| `FILE` | | Input file (stdin if not provided) | stdin |
-| `--in-place` | `-i` | Edit file in place | false |
+| `FILE...` | | Input file(s) (stdin if not provided, multiple files supported) | stdin |
+| `--in-place` | `-i` | Edit file(s) in place | false |
 | `--max-iters` | `-m` | Maximum correction iterations | 10 |
 | `--min-score` | `-s` | Minimum score threshold (0.0-1.0) | 0.5 |
+| `--preset` | `-P` | Confidence preset: strict (0.8), normal (0.5), aggressive (0.3), relaxed (0.1) | - |
 | `--tab-width` | `-t` | Tab expansion width | 4 |
 | `--all` | `-a` | Process all diagram-like blocks | false |
 | `--verbose` | `-v` | Show correction progress | false |
+| `--diff` | `-d` | Show unified diff instead of full output | false |
+| `--dry-run` | `-n` | Preview changes (exit 3 if changes would be made) | false |
+| `--json` | | Output results as JSON | false |
 
 ---
 
@@ -193,25 +197,43 @@ If you see errors, **carefully understand and resolve each issue**. Read suffici
 
 ## Testing
 
-### Unit Tests
-
-The test suite covers core functionality:
+### Quick Reference
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration)
 cargo test
 
-# Run with output
-cargo test -- --nocapture
+# Run only unit tests
+cargo test --lib
 
-# Run specific test
-cargo test test_is_corner
+# Run integration tests (Rust E2E)
+cargo test --test integration
+
+# Run E2E bash test suites
+./tests/e2e_basic_cli.sh      # Stdin/stdout, file I/O, exit codes
+./tests/e2e_cli_options.sh    # CLI flags and options
+./tests/e2e_fixtures.sh       # Fixture-based input/expected tests
+
+# Run comprehensive E2E runner with logging
+./tests/e2e_runner.sh         # All suites with detailed log
+./tests/e2e_runner.sh -v      # Verbose output
+./tests/e2e_runner.sh -f cli  # Filter by pattern
 ```
 
-### Test Categories
+### Test Suites
 
-| Test | Purpose |
-|------|---------|
+| Suite | Count | Command | Description |
+|-------|-------|---------|-------------|
+| Unit Tests | 138 | `cargo test --lib` | Core logic, parsing, scoring |
+| Integration | 20 | `cargo test --test integration` | Rust E2E tests |
+| E2E Basic | 18 | `./tests/e2e_basic_cli.sh` | Stdin, files, exit codes |
+| E2E Options | 17 | `./tests/e2e_cli_options.sh` | CLI flags |
+| E2E Fixtures | 20 | `./tests/e2e_fixtures.sh` | Input/expected pairs |
+
+### Unit Test Categories
+
+| Test Pattern | Purpose |
+|--------------|---------|
 | `test_is_corner` | Corner character detection |
 | `test_is_horizontal_fill` | Horizontal fill detection |
 | `test_is_vertical_border` | Vertical border detection |
@@ -220,7 +242,23 @@ cargo test test_is_corner
 | `test_expand_tabs` | Tab expansion |
 | `test_find_diagram_blocks` | Block detection |
 | `test_detect_suffix_border` | Border detection |
-| `test_correction_simple` | End-to-end correction |
+| `test_correction_*` | End-to-end correction |
+| `test_args_*` | CLI argument parsing |
+
+### E2E Test Fixtures
+
+Test fixtures are in `tests/fixtures/` organized by category:
+
+```
+tests/fixtures/
+├── ascii/           # ASCII box characters (+, -, |)
+├── unicode/         # Unicode box-drawing (┌, ─, │)
+├── edge_cases/      # Empty, tabs, whitespace, malformed
+├── mixed/           # Multiple diagrams, prose with diagrams
+└── large/           # 100+ lines, CJK content
+```
+
+Each fixture has `.input.txt` and `.expected.txt` pairs.
 
 ### Manual Testing
 
@@ -234,6 +272,19 @@ echo '+----+
 echo '+----+
 | hi|
 +----+' | cargo run -- -v
+
+# Test multiple files (new feature)
+cargo run -- tests/fixtures/ascii/*.input.txt
+```
+
+### Coverage
+
+CI enforces 80% minimum line coverage via `cargo-llvm-cov`:
+
+```bash
+# Generate local coverage report
+cargo llvm-cov --html
+open target/llvm-cov/html/index.html
 ```
 
 ---

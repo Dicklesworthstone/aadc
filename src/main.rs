@@ -1,9 +1,51 @@
-//! ASCII Art Diagram Corrector (aadc)
+//! # ASCII Art Diagram Corrector (aadc)
 //!
 //! A CLI tool that fixes misaligned right-hand borders in ASCII diagrams.
 //! Uses an iterative correction loop with scoring to achieve clean alignment.
+//!
+//! ## Overview
+//!
+//! `aadc` automatically detects ASCII diagram blocks in text files and aligns
+//! their right-hand borders by adding padding. It never removes content,
+//! making it safe to use on any text file.
+//!
+//! ## Key Components
+//!
+//! - **Block Detection**: Heuristic identification of diagram blocks based on
+//!   box-drawing characters (both ASCII `+|-` and Unicode `┌┐└┘│─`).
+//! - **Line Classification**: Lines are classified as Strong (horizontal borders),
+//!   Weak (content with vertical borders), Blank, or None.
+//! - **Iterative Correction**: Runs multiple passes until alignment converges
+//!   or the maximum iteration count is reached.
+//! - **Confidence Scoring**: Each proposed edit receives a score; only edits
+//!   above the threshold are applied.
+//!
+//! ## Algorithm Flow
+//!
+//! ```text
+//! Input → Tab Expansion → Block Detection → Iterative Correction → Output
+//!                              ↓
+//!                        For each block:
+//!                          - Analyze lines
+//!                          - Find target column (rightmost border)
+//!                          - Generate revisions
+//!                          - Score and filter
+//!                          - Apply revisions
+//!                          - Repeat until converged
+//! ```
+//!
+//! ## Exit Codes
+//!
+//! | Code | Meaning |
+//! |------|---------|
+//! | 0 | Success |
+//! | 1 | General error (file not found, permission denied, I/O error) |
+//! | 2 | Invalid command-line arguments |
+//! | 3 | Dry-run mode: changes would be made |
+//! | 4 | Parse error (invalid UTF-8 or binary input) |
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -223,6 +265,10 @@ fn validate_args(args: &Args) -> Result<()> {
         return Err(ArgError("--max-iters must be at least 1".to_string()).into());
     }
 
+    if args.tab_width == 0 || args.tab_width > 16 {
+        return Err(ArgError("--tab-width must be between 1 and 16".to_string()).into());
+    }
+
     if args.in_place && args.inputs.is_empty() {
         return Err(ArgError("--in-place requires at least one input file".to_string()).into());
     }
@@ -282,16 +328,38 @@ struct OutputStats {
 // Line Classification
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Classification of a line's "boxiness"
+/// Classification of a line's role in a diagram.
+///
+/// Lines are classified based on the presence and type of box-drawing
+/// characters. This classification drives revision generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LineKind {
-    /// Empty or whitespace-only
+    /// Empty or whitespace-only line.
+    ///
+    /// Blank lines may separate logical sections within a diagram.
     Blank,
-    /// No box-drawing characters detected
+
+    /// A line with no detected diagram structure.
+    ///
+    /// These lines are passed through unchanged.
     None,
-    /// Some box-drawing characters but weak pattern
+
+    /// A line with vertical borders but no horizontal structure.
+    ///
+    /// Weak lines form the content rows of boxes:
+    /// ```text
+    /// | Content  |   ← Weak (vertical borders only)
+    /// │ データ   │   ← Weak (Unicode vertical)
+    /// ```
     Weak,
-    /// Strong box-drawing pattern (borders, corners)
+
+    /// A line with strong horizontal structure.
+    ///
+    /// Strong lines typically form the top/bottom borders of boxes:
+    /// ```text
+    /// +----------+   ← Strong (corners + horizontal runs)
+    /// ┌──────────┐   ← Strong (Unicode corners + horizontal)
+    /// ```
     Strong,
 }
 
@@ -382,38 +450,68 @@ fn detect_vertical_border(lines: &[&str]) -> char {
 // Line Analysis
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Analyzed line with extracted properties
+/// Result of analyzing a single line for diagram structure.
+///
+/// Contains extracted properties used for revision generation:
+/// - The line's classification (Strong, Weak, Blank, None)
+/// - Visual width accounting for CJK and other wide characters
+/// - Suffix border position and character if detected
 #[derive(Debug)]
 struct AnalyzedLine {
-    /// The original line content
+    /// The original line content (unmodified)
     #[allow(dead_code)]
     content: String,
-    /// Classification of the line
+
+    /// Classification of the line based on box-drawing characters
     kind: LineKind,
-    /// Visual width (accounting for wide chars)
+
+    /// Visual width in terminal columns (CJK chars count as 2)
     #[allow(dead_code)]
     visual_width: usize,
-    /// Left indentation (leading spaces)
+
+    /// Number of leading space characters
     #[allow(dead_code)]
     indent: usize,
-    /// Detected suffix border info if present
+
+    /// Detected right-side border information, if any
     suffix_border: Option<SuffixBorder>,
 }
 
-/// Information about a detected right-side border
+/// Information about a detected right-side border character.
+///
+/// Used to determine the target column for alignment and to
+/// generate revisions that pad lines to match.
 #[derive(Debug, Clone)]
 struct SuffixBorder {
-    /// Column position where the border starts
+    /// Visual column position where the border appears (0-indexed)
     column: usize,
-    /// The border character
+
+    /// The actual border character (`|`, `│`, etc.)
     #[allow(dead_code)]
     char: char,
-    /// Whether this looks like a closing border (vs mid-line)
+
+    /// True if this appears to be a closing border (end of content),
+    /// false if it's a mid-line separator
     #[allow(dead_code)]
     is_closing: bool,
 }
 
-/// Calculate visual width of a string (handling wide chars)
+/// Calculate the visual width of a string in terminal columns.
+///
+/// Handles different character widths:
+/// - ASCII characters: 1 column each
+/// - CJK characters (Chinese, Japanese, Korean): 2 columns each
+/// - Emoji and other wide Unicode: 2 columns each
+///
+/// # Examples
+///
+/// ```text
+/// visual_width("Hello")     == 5   // ASCII only
+/// visual_width("你好")      == 4   // CJK (2 chars × 2 columns)
+/// visual_width("Hello世界") == 9   // 5 ASCII + 2 CJK chars
+/// ```
+///
+/// This is critical for correct padding calculations in diagrams.
 fn visual_width(s: &str) -> usize {
     s.chars()
         .map(|c| {
@@ -512,18 +610,36 @@ fn detect_suffix_border(line: &str) -> Option<SuffixBorder> {
 // Diagram Block Detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A detected diagram block
+/// A detected ASCII diagram block within the input text.
+///
+/// Blocks are identified by consecutive lines containing box-drawing
+/// characters. Each block is processed independently by the correction
+/// algorithm.
+///
+/// # Confidence Scoring
+///
+/// The confidence score (0.0-1.0) indicates how likely this block is
+/// to be an actual diagram versus coincidental box characters:
+/// - 0.9-1.0: Very likely a diagram (multiple strong lines)
+/// - 0.5-0.9: Probably a diagram (mixed strong/weak lines)
+/// - 0.0-0.5: Uncertain (weak lines only, may be table or code)
 #[derive(Debug)]
 struct DiagramBlock {
-    /// Starting line index (0-based)
+    /// Starting line index in the input (0-based, inclusive)
     start: usize,
-    /// Ending line index (exclusive)
+
+    /// Ending line index in the input (exclusive)
     end: usize,
-    /// Confidence score (0.0-1.0)
+
+    /// Confidence that this is an actual diagram (0.0-1.0)
     confidence: f64,
 }
 
-/// Find diagram blocks in the text
+/// Find diagram blocks in the input text.
+///
+/// Scans the input for consecutive lines containing box-drawing characters
+/// and groups them into blocks. Uses lookahead to merge blocks separated
+/// by single blank lines.
 fn find_diagram_blocks(lines: &[String], all_blocks: bool) -> Vec<DiagramBlock> {
     let mut blocks = Vec::new();
     let mut i = 0;
@@ -616,20 +732,49 @@ fn find_diagram_blocks(lines: &[String], all_blocks: bool) -> Vec<DiagramBlock> 
 // Revision System
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A proposed revision to a line
+/// A proposed modification to align a line's right border.
+///
+/// Revisions are generated during the correction loop and scored for
+/// confidence. Only revisions above the `--min-score` threshold are applied.
+///
+/// # Scoring
+///
+/// Each revision type has different base confidence scores:
+/// - `PadBeforeSuffixBorder`: Higher confidence (0.3-0.9), as we're just adding
+///   whitespace before an existing border
+/// - `AddSuffixBorder`: Lower confidence (0.3-0.6), as we're adding a character
+///   that wasn't there
+///
+/// # Monotone Edits
+///
+/// Both revision types are "monotone" (insert-only) - they never remove
+/// content from the line, making them safe to apply.
 #[derive(Debug, Clone)]
 enum Revision {
-    /// Pad before the suffix border to align it
+    /// Insert spaces before an existing suffix border to align it.
+    ///
+    /// This is the most common revision type and has higher confidence
+    /// since we're only adjusting whitespace.
     PadBeforeSuffixBorder {
+        /// Global line index (0-based)
         line_idx: usize,
+        /// Number of space characters to insert
         spaces_to_add: usize,
+        /// Target visual column for alignment
         #[allow(dead_code)]
         target_column: usize,
     },
-    /// Add a missing suffix border
+
+    /// Add a border character at the target column.
+    ///
+    /// Used when a line has content but no closing border. Lower confidence
+    /// since we're adding structure that may not be intended.
     AddSuffixBorder {
+        /// Global line index (0-based)
         line_idx: usize,
+        /// Border character to add (`|`, `│`, etc.)
         border_char: char,
+        /// Target visual column for the new border
         target_column: usize,
     },
 }
@@ -707,7 +852,26 @@ impl Revision {
 // Block Correction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Correct a single diagram block
+/// Correct a single diagram block using iterative refinement.
+///
+/// This is the core correction algorithm. It runs a loop that:
+/// 1. Analyzes all lines in the block to find their border positions
+/// 2. Determines the target column (rightmost border position)
+/// 3. Generates candidate revisions to align other lines to the target
+/// 4. Scores each revision and filters by `min_score`
+/// 5. Applies valid revisions
+/// 6. Repeats until no more revisions needed or `max_iters` reached
+///
+/// # Arguments
+///
+/// * `lines` - Mutable slice of all input lines (block is modified in place)
+/// * `block` - The block to correct (defines which lines to process)
+/// * `config` - Configuration with thresholds and iteration limits
+/// * `console` - For verbose output
+///
+/// # Returns
+///
+/// The total number of revisions applied across all iterations.
 fn correct_block(
     lines: &mut [String],
     block: &DiagramBlock,
@@ -879,8 +1043,25 @@ fn create_backup(path: &Path, ext: &str) -> Result<PathBuf> {
     Ok(backup_path)
 }
 
+/// Maximum file size (100 MB) - reject larger files to prevent memory issues
+const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
 /// Read content from a file path and return lines
 fn read_file(path: &Path) -> Result<Vec<String>> {
+    // Check file size before reading
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("Failed to read file metadata: {}", path.display()))?;
+
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(ParseError(format!(
+            "File too large: {} ({} MB). Maximum supported size is {} MB.",
+            path.display(),
+            metadata.len() / (1024 * 1024),
+            MAX_FILE_SIZE / (1024 * 1024)
+        ))
+        .into());
+    }
+
     let source_label = path.display().to_string();
     let bytes =
         fs::read(path).with_context(|| format!("Failed to read input file: {}", path.display()))?;
@@ -1034,6 +1215,15 @@ fn output_diff(result: &FileResult, proposed: bool) -> Result<()> {
 
 fn run(args: Args) -> Result<RunOutcome> {
     validate_args(&args)?;
+
+    // Warn about very high max_iters values that may slow processing
+    if args.max_iters > 100 {
+        eprintln!(
+            "Warning: --max-iters {} is very high; this may slow processing",
+            args.max_iters
+        );
+    }
+
     let config = Config::from(&args);
     let console = Console::new();
 
@@ -1433,8 +1623,8 @@ mod tests {
     }
 
     #[test]
-    fn test_args_preset_case_insensitive() {
-        let args = Args::parse_from(["aadc", "--preset", "RELAXED", "file.txt"]);
+    fn test_args_preset_relaxed() {
+        let args = Args::parse_from(["aadc", "--preset", "relaxed", "file.txt"]);
         assert!(matches!(args.preset, Some(Preset::Relaxed)));
     }
 
@@ -1513,6 +1703,21 @@ mod tests {
         args.in_place = true;
         assert!(validate_args(&args).is_err());
         args.inputs = vec![PathBuf::from("diagram.txt")];
+        assert!(validate_args(&args).is_ok());
+    }
+
+    #[test]
+    fn test_validate_args_tab_width_bounds() {
+        let mut args = make_args();
+        args.tab_width = 0;
+        assert!(validate_args(&args).is_err());
+        args.tab_width = 17;
+        assert!(validate_args(&args).is_err());
+        args.tab_width = 1;
+        assert!(validate_args(&args).is_ok());
+        args.tab_width = 16;
+        assert!(validate_args(&args).is_ok());
+        args.tab_width = 4;
         assert!(validate_args(&args).is_ok());
     }
 
@@ -2784,6 +2989,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2813,6 +3019,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2840,6 +3047,7 @@ mod tests {
         let config = Config {
             max_iters: 1, // Only 1 iteration
             min_score: 0.1,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2869,6 +3077,7 @@ mod tests {
         let config_strict = Config {
             max_iters: 10,
             min_score: 0.95, // Very strict
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2897,6 +3106,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2931,6 +3141,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
@@ -2953,6 +3164,7 @@ mod tests {
         let config = Config {
             max_iters: 10,
             min_score: 0.5,
+            preset: None,
             tab_width: 4,
             all_blocks: false,
             verbose: false,
