@@ -53,8 +53,9 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
-use rich_rust::Console;
-use serde::Serialize;
+use rich_rust::{ColorSystem, Console};
+use rich_rust::terminal;
+use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::fmt;
 use std::fs;
@@ -125,7 +126,8 @@ fn exit_code_for_error(err: &anyhow::Error) -> i32 {
 // CLI Arguments
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum Preset {
     /// Conservative: only high-confidence edits (0.8)
     Strict,
@@ -148,6 +150,16 @@ impl Preset {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ColorMode {
+    /// Auto-detect color support
+    Auto,
+    /// Always emit colors (even when not a TTY)
+    Always,
+    /// Never emit colors
+    Never,
+}
+
 /// ASCII Art Diagram Corrector: fixes misaligned right borders in ASCII diagrams
 #[derive(Parser, Debug)]
 #[command(
@@ -162,6 +174,14 @@ struct Args {
     /// Multiple files can be specified.
     #[arg(value_name = "FILE")]
     inputs: Vec<PathBuf>,
+
+    /// Path to config file (default: search for .aadcrc)
+    #[arg(long = "config", value_name = "FILE")]
+    config_file: Option<PathBuf>,
+
+    /// Ignore config files
+    #[arg(long = "no-config")]
+    no_config: bool,
 
     /// Process files recursively in directories
     #[arg(short = 'r', long)]
@@ -207,6 +227,10 @@ struct Args {
     #[arg(short = 'v', long)]
     verbose: bool,
 
+    /// Color output: auto, always, or never
+    #[arg(long, value_enum, default_value = "auto")]
+    color: ColorMode,
+
     /// Show unified diff of changes instead of full output
     #[arg(short = 'd', long)]
     diff: bool,
@@ -244,6 +268,26 @@ enum Commands {
         #[command(subcommand)]
         action: HookAction,
     },
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+/// Config management actions
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Initialize a new .aadcrc config file
+    Init {
+        /// Create in home directory instead of current
+        #[arg(long)]
+        global: bool,
+    },
+    /// Show effective configuration (merged file + CLI)
+    Show,
+    /// Show path to active config file
+    Path,
 }
 
 /// Hook management actions
@@ -284,6 +328,7 @@ struct Config {
     glob: String,
     gitignore: bool,
     max_depth: usize,
+    color: ColorMode,
     verbose: bool,
     diff: bool,
     dry_run: bool,
@@ -304,6 +349,7 @@ impl From<&Args> for Config {
             glob: args.glob.clone(),
             gitignore: !args.no_gitignore,
             max_depth: args.max_depth,
+            color: args.color,
             verbose: args.verbose,
             diff: args.diff,
             dry_run: args.dry_run,
@@ -319,6 +365,393 @@ impl Config {
         match self.preset {
             Some(preset) => preset.min_score(),
             None => self.min_score,
+        }
+    }
+}
+
+struct VerboseStyle {
+    use_color: bool,
+}
+
+impl VerboseStyle {
+    fn new(use_color: bool) -> Self {
+        Self { use_color }
+    }
+
+    fn wrap(&self, tag: &str, text: impl fmt::Display) -> String {
+        if self.use_color {
+            format!("[{}]{}[/]", tag, text)
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn header(&self, text: impl fmt::Display) -> String {
+        self.wrap("bold cyan", text)
+    }
+
+    fn block(&self, text: impl fmt::Display) -> String {
+        self.wrap("yellow", text)
+    }
+
+    fn success(&self, text: impl fmt::Display) -> String {
+        self.wrap("bold green", text)
+    }
+
+    fn dim(&self, text: impl fmt::Display) -> String {
+        self.wrap("dim", text)
+    }
+
+    fn bold(&self, text: impl fmt::Display) -> String {
+        self.wrap("bold", text)
+    }
+}
+
+fn build_console(color: ColorMode) -> (Console, VerboseStyle) {
+    match color {
+        ColorMode::Never => (Console::new(), VerboseStyle::new(false)),
+        ColorMode::Always => {
+            let system = terminal::detect_color_system().unwrap_or(ColorSystem::Standard);
+            let console = Console::builder()
+                .force_terminal(true)
+                .color_system(system)
+                .build();
+            (console, VerboseStyle::new(true))
+        }
+        ColorMode::Auto => {
+            if std::env::var("NO_COLOR").is_ok() {
+                return (Console::new(), VerboseStyle::new(false));
+            }
+
+            if std::env::var("FORCE_COLOR").is_ok() {
+                let system = terminal::detect_color_system().unwrap_or(ColorSystem::Standard);
+                let console = Console::builder()
+                    .force_terminal(true)
+                    .color_system(system)
+                    .build();
+                return (console, VerboseStyle::new(true));
+            }
+
+            let console = Console::new();
+            let use_color = console.is_color_enabled();
+            (console, VerboseStyle::new(use_color))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config File Support
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Config file names searched in order
+const CONFIG_FILENAMES: &[&str] = &[".aadcrc", ".aadcrc.toml", "aadcrc.toml"];
+
+/// Configuration loaded from a .aadcrc file
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct FileConfig {
+    /// Minimum confidence score (0.0-1.0)
+    min_score: Option<f64>,
+    /// Confidence threshold preset (overrides min_score)
+    preset: Option<Preset>,
+    /// Maximum correction iterations
+    max_iters: Option<usize>,
+    /// Tab expansion width
+    tab_width: Option<usize>,
+    /// Show verbose output
+    verbose: Option<bool>,
+    /// Color mode: auto, always, never
+    color: Option<ColorMode>,
+    /// Output as JSON
+    json: Option<bool>,
+    /// Create backup before in-place edit
+    backup: Option<bool>,
+    /// Backup file extension
+    backup_ext: Option<String>,
+    /// Enable recursive mode
+    recursive: Option<bool>,
+    /// Glob patterns for recursive mode
+    glob: Option<String>,
+    /// Respect .gitignore
+    gitignore: Option<bool>,
+    /// Maximum directory depth
+    max_depth: Option<usize>,
+    /// Process all diagram-like blocks
+    all: Option<bool>,
+}
+
+/// Search for a config file starting from the given directory
+fn find_config_file(start_dir: &Path) -> Option<PathBuf> {
+    let mut current = start_dir.to_path_buf();
+
+    // Search up the directory tree
+    loop {
+        for filename in CONFIG_FILENAMES {
+            let config_path = current.join(filename);
+            if config_path.exists() {
+                return Some(config_path);
+            }
+        }
+
+        if !current.pop() {
+            break;
+        }
+    }
+
+    // Check home directory
+    if let Some(home) = dirs::home_dir() {
+        for filename in CONFIG_FILENAMES {
+            let config_path = home.join(filename);
+            if config_path.exists() {
+                return Some(config_path);
+            }
+        }
+    }
+
+    None
+}
+
+/// Load and parse a config file
+fn load_config_file(path: &Path) -> Result<FileConfig> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+
+    toml::from_str(&content)
+        .with_context(|| format!("Failed to parse config file: {}", path.display()))
+}
+
+/// Create Config by merging file config with CLI args (CLI wins)
+fn create_config(args: &Args) -> Result<Config> {
+    let mut config = Config::from(args);
+
+    // Skip config file loading if --no-config is set
+    if args.no_config {
+        return Ok(config);
+    }
+
+    // Find and load config file
+    let config_path = if let Some(ref path) = args.config_file {
+        // Explicit config file specified
+        if !path.exists() {
+            return Err(anyhow::anyhow!("Config file not found: {}", path.display()));
+        }
+        Some(path.clone())
+    } else {
+        // Search for config file
+        let start_dir = args
+            .inputs
+            .first()
+            .and_then(|p| {
+                if p.is_dir() {
+                    Some(p.clone())
+                } else {
+                    p.parent().map(|p| p.to_path_buf())
+                }
+            })
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+        find_config_file(&start_dir)
+    };
+
+    if let Some(path) = config_path {
+        let file_config = load_config_file(&path)?;
+
+        // Merge file config with CLI config (CLI wins)
+        // Only apply file config values when CLI used defaults
+        if args.preset.is_none() {
+            if let Some(preset) = file_config.preset {
+                config.preset = Some(preset);
+            } else if let Some(score) = file_config.min_score {
+                // Only use min_score from file if no preset specified
+                if config.preset.is_none() {
+                    config.min_score = score;
+                }
+            }
+        }
+
+        // max_iters: use file value if CLI used default (10)
+        if args.max_iters == 10 {
+            if let Some(iters) = file_config.max_iters {
+                config.max_iters = iters;
+            }
+        }
+
+        // tab_width: use file value if CLI used default (4)
+        if args.tab_width == 4 {
+            if let Some(width) = file_config.tab_width {
+                config.tab_width = width;
+            }
+        }
+
+        // Boolean flags: use file value if CLI flag wasn't set
+        if !args.verbose {
+            if let Some(v) = file_config.verbose {
+                config.verbose = v;
+            }
+        }
+
+        if args.color == ColorMode::Auto {
+            if let Some(c) = file_config.color {
+                config.color = c;
+            }
+        }
+
+        if !args.json {
+            if let Some(j) = file_config.json {
+                config.json = j;
+            }
+        }
+
+        if !args.backup {
+            if let Some(b) = file_config.backup {
+                config.backup = b;
+            }
+        }
+
+        // backup_ext: use file value if CLI used default
+        if args.backup_ext == ".bak" {
+            if let Some(ext) = file_config.backup_ext {
+                config.backup_ext = ext;
+            }
+        }
+
+        // Recursive options
+        if !args.recursive {
+            if let Some(r) = file_config.recursive {
+                config.recursive = r;
+            }
+        }
+
+        if args.glob == "*.txt,*.md" {
+            if let Some(g) = file_config.glob {
+                config.glob = g;
+            }
+        }
+
+        if !args.no_gitignore {
+            if let Some(gi) = file_config.gitignore {
+                config.gitignore = gi;
+            }
+        }
+
+        if args.max_depth == 0 {
+            if let Some(d) = file_config.max_depth {
+                config.max_depth = d;
+            }
+        }
+
+        if !args.all {
+            if let Some(a) = file_config.all {
+                config.all_blocks = a;
+            }
+        }
+    }
+
+    Ok(config)
+}
+
+/// Default config file content
+const DEFAULT_CONFIG: &str = r#"# .aadcrc - aadc configuration file
+# https://github.com/Dicklesworthstone/aadc
+
+# Confidence threshold for applying edits
+# Use either min_score (0.0-1.0) or preset (strict|normal|aggressive|relaxed)
+# preset = "normal"
+min_score = 0.5
+
+# Maximum correction iterations per block
+max_iters = 10
+
+# Tab expansion width
+tab_width = 4
+
+# Output options
+# verbose = false
+# color = "auto"
+# json = false
+
+# Backup options (for --in-place)
+# backup = false
+# backup_ext = ".bak"
+
+# Recursive mode defaults
+# recursive = false
+# glob = "*.txt,*.md"
+# gitignore = true
+# max_depth = 0
+
+# Force processing of low-confidence blocks
+# all = false
+"#;
+
+/// Handle the config subcommand
+fn run_config_command(action: &ConfigAction) -> Result<()> {
+    match action {
+        ConfigAction::Init { global } => {
+            let path = if *global {
+                dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                    .join(".aadcrc")
+            } else {
+                PathBuf::from(".aadcrc")
+            };
+
+            if path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Config file already exists: {}",
+                    path.display()
+                ));
+            }
+
+            fs::write(&path, DEFAULT_CONFIG)
+                .with_context(|| format!("Failed to create config file: {}", path.display()))?;
+
+            eprintln!("Created config file: {}", path.display());
+            Ok(())
+        }
+
+        ConfigAction::Show => {
+            // Parse minimal args to get effective config
+            let args = Args::parse_from(["aadc"]);
+            let config = create_config(&args)?;
+
+            eprintln!("Effective configuration:");
+            eprintln!("  min_score: {}", config.effective_min_score());
+            if let Some(preset) = config.preset {
+                eprintln!("  preset: {:?}", preset);
+            }
+            eprintln!("  max_iters: {}", config.max_iters);
+            eprintln!("  tab_width: {}", config.tab_width);
+            eprintln!("  verbose: {}", config.verbose);
+            eprintln!("  color: {:?}", config.color);
+            eprintln!("  json: {}", config.json);
+            eprintln!("  backup: {}", config.backup);
+            eprintln!("  backup_ext: {}", config.backup_ext);
+            eprintln!("  recursive: {}", config.recursive);
+            eprintln!("  glob: {}", config.glob);
+            eprintln!("  gitignore: {}", config.gitignore);
+            eprintln!("  max_depth: {}", config.max_depth);
+            eprintln!("  all_blocks: {}", config.all_blocks);
+
+            // Show config file path if found
+            let start_dir = std::env::current_dir().unwrap_or_default();
+            if let Some(path) = find_config_file(&start_dir) {
+                eprintln!();
+                eprintln!("Config file: {}", path.display());
+            }
+
+            Ok(())
+        }
+
+        ConfigAction::Path => {
+            let start_dir = std::env::current_dir().unwrap_or_default();
+            if let Some(path) = find_config_file(&start_dir) {
+                println!("{}", path.display());
+                Ok(())
+            } else {
+                eprintln!("No config file found");
+                std::process::exit(1);
+            }
         }
     }
 }
@@ -995,6 +1428,7 @@ fn correct_block(
     block: &DiagramBlock,
     config: &Config,
     console: &Console,
+    styles: &VerboseStyle,
 ) -> usize {
     let mut total_revisions = 0;
 
@@ -1052,8 +1486,8 @@ fn correct_block(
             // Converged
             if config.verbose && iteration > 0 {
                 console.print(&format!(
-                    "[dim]    Converged after {} iteration(s)[/]",
-                    iteration
+                    "{}",
+                    styles.dim(format!("    Converged after {} iteration(s)", iteration))
                 ));
             }
             break;
@@ -1068,9 +1502,12 @@ fn correct_block(
 
         if config.verbose {
             console.print(&format!(
-                "[dim]    Iteration {}: applied {} revision(s)[/]",
-                iteration + 1,
-                valid_revisions.len()
+                "{}",
+                styles.dim(format!(
+                    "    Iteration {}: applied {} revision(s)",
+                    iteration + 1,
+                    valid_revisions.len()
+                ))
             ));
         }
     }
@@ -1102,7 +1539,12 @@ fn expand_tabs(line: &str, tab_width: usize) -> String {
 }
 
 /// Main correction entry point
-fn correct_lines(lines: Vec<String>, config: &Config, console: &Console) -> (Vec<String>, Stats) {
+fn correct_lines(
+    lines: Vec<String>,
+    config: &Config,
+    console: &Console,
+    styles: &VerboseStyle,
+) -> (Vec<String>, Stats) {
     let mut stats = Stats::default();
 
     if !config.all_blocks {
@@ -1110,13 +1552,18 @@ fn correct_lines(lines: Vec<String>, config: &Config, console: &Console) -> (Vec
         if !scan.likely_has_diagrams {
             if config.verbose {
                 console.print(&format!(
-                    "[dim]Quick scan: no diagrams detected ({}/{} lines, {:.1}% box chars < {:.1}% threshold)[/]",
-                    scan.lines_with_box_chars,
-                    scan.lines_scanned,
-                    scan.ratio * 100.0,
-                    QUICK_SCAN_THRESHOLD * 100.0
+                    "{}",
+                    styles.dim(format!(
+                        "Quick scan: no diagrams detected ({}/{} lines, {:.1}% box chars < {:.1}% threshold)",
+                        scan.lines_with_box_chars,
+                        scan.lines_scanned,
+                        scan.ratio * 100.0,
+                        QUICK_SCAN_THRESHOLD * 100.0
+                    ))
                 ));
-                console.print("[dim]Passing through unchanged (use --all to force processing)[/]");
+                console.print(&styles.dim(
+                    "Passing through unchanged (use --all to force processing)",
+                ));
             }
             return (lines, stats);
         }
@@ -1134,8 +1581,8 @@ fn correct_lines(lines: Vec<String>, config: &Config, console: &Console) -> (Vec
 
     if config.verbose {
         console.print(&format!(
-            "[bold cyan]Found {} diagram block(s)[/]",
-            blocks.len()
+            "{}",
+            styles.header(format!("Found {} diagram block(s)", blocks.len()))
         ));
     }
 
@@ -1143,15 +1590,18 @@ fn correct_lines(lines: Vec<String>, config: &Config, console: &Console) -> (Vec
     for (i, block) in blocks.iter().enumerate() {
         if config.verbose {
             console.print(&format!(
-                "[yellow]  Block {}: lines {}-{} (confidence: {:.0}%)[/]",
-                i + 1,
-                block.start + 1,
-                block.end,
-                block.confidence * 100.0
+                "{}",
+                styles.block(format!(
+                    "  Block {}: lines {}-{} (confidence: {:.0}%)",
+                    i + 1,
+                    block.start + 1,
+                    block.end,
+                    block.confidence * 100.0
+                ))
             ));
         }
 
-        let revisions = correct_block(&mut lines, block, config, console);
+        let revisions = correct_block(&mut lines, block, config, console, styles);
         if revisions > 0 {
             stats.blocks_modified += 1;
             stats.total_revisions += revisions;
@@ -1194,6 +1644,7 @@ fn discover_recursive_files(
     paths: &[PathBuf],
     config: &Config,
     console: &Console,
+    styles: &VerboseStyle,
 ) -> Result<Vec<PathBuf>> {
     let globs = build_globset(&config.glob)?;
     let mut files = std::collections::BTreeSet::new();
@@ -1207,8 +1658,8 @@ fn discover_recursive_files(
         if !path.is_dir() {
             if config.verbose {
                 console.print(&format!(
-                    "[dim]Warning: path does not exist: {}[/]",
-                    path.display()
+                    "{}",
+                    styles.dim(format!("Warning: path does not exist: {}", path.display()))
                 ));
             }
             continue;
@@ -1230,7 +1681,7 @@ fn discover_recursive_files(
                 Ok(entry) => entry,
                 Err(err) => {
                     if config.verbose {
-                        console.print(&format!("[dim]Warning: {}[/]", err));
+                        console.print(&styles.dim(format!("Warning: {}", err)));
                     }
                     continue;
                 }
@@ -1339,6 +1790,7 @@ const DEFAULT_PATTERNS: &[&str] = &["*.md", "*.txt"];
 fn run_command(command: &Commands) -> Result<()> {
     match command {
         Commands::Hook { action } => run_hook_command(action),
+        Commands::Config { action } => run_config_command(action),
     }
 }
 
@@ -1678,17 +2130,17 @@ fn process_input(
     filename: String,
     config: &Config,
     console: &Console,
+    styles: &VerboseStyle,
 ) -> FileResult {
     if config.verbose {
         console.print(&format!(
-            "[bold]Processing {} ({} lines)...[/]",
-            filename,
-            lines.len()
+            "{}",
+            styles.bold(format!("Processing {} ({} lines)...", filename, lines.len()))
         ));
     }
 
     let original = lines.clone();
-    let (corrected, stats) = correct_lines(lines, config, console);
+    let (corrected, stats) = correct_lines(lines, config, console, styles);
 
     let original_text = original.join("\n");
     let corrected_text = corrected.join("\n");
@@ -1752,28 +2204,31 @@ fn run(args: Args) -> Result<RunOutcome> {
         );
     }
 
-    let config = Config::from(&args);
-    let console = Console::new();
+    let config = create_config(&args)?;
+    let (console, styles) = build_console(config.color);
 
     if config.verbose {
         if let Some(preset) = config.preset {
             console.print(&format!(
-                "[dim]Using preset: {:?} (min_score = {:.1})[/]",
-                preset,
-                config.effective_min_score()
+                "{}",
+                styles.dim(format!(
+                    "Using preset: {:?} (min_score = {:.1})",
+                    preset,
+                    config.effective_min_score()
+                ))
             ));
         }
     }
 
     if config.recursive {
-        let files = discover_recursive_files(&args.inputs, &config, &console)?;
+        let files = discover_recursive_files(&args.inputs, &config, &console, &styles)?;
         if files.is_empty() {
             let message = format!(
                 "Warning: No files matched pattern '{}' in provided paths",
                 config.glob
             );
             if config.verbose {
-                console.print(&format!("[dim]{}[/]", message));
+                console.print(&styles.dim(message));
             } else {
                 eprintln!("{}", message);
             }
@@ -1783,24 +2238,24 @@ fn run(args: Args) -> Result<RunOutcome> {
             });
         }
 
-        return output_multiple_results(&args, &config, &console, &files);
+        return output_multiple_results(&args, &config, &console, &styles, &files);
     }
 
     // Determine if we're processing stdin or files
     if args.inputs.is_empty() {
         // Stdin mode - single input
         let lines = read_stdin_content()?;
-        let result = process_input(lines, "stdin".to_string(), &config, &console);
-        output_single_result(&args, &config, &console, result)
+        let result = process_input(lines, "stdin".to_string(), &config, &console, &styles);
+        output_single_result(&args, &config, &console, &styles, result)
     } else if args.inputs.len() == 1 {
         // Single file mode - same behavior as before
         let path = &args.inputs[0];
         let lines = read_file(path)?;
-        let result = process_input(lines, path.display().to_string(), &config, &console);
-        output_single_result(&args, &config, &console, result)
+        let result = process_input(lines, path.display().to_string(), &config, &console, &styles);
+        output_single_result(&args, &config, &console, &styles, result)
     } else {
         // Multiple file mode
-        output_multiple_results(&args, &config, &console, &args.inputs)
+        output_multiple_results(&args, &config, &console, &styles, &args.inputs)
     }
 }
 
@@ -1809,6 +2264,7 @@ fn output_single_result(
     args: &Args,
     config: &Config,
     console: &Console,
+    styles: &VerboseStyle,
     result: FileResult,
 ) -> Result<RunOutcome> {
     let would_change = result.would_change;
@@ -1816,13 +2272,16 @@ fn output_single_result(
     if config.json {
         output_json_single(args, config, &result)?;
     } else if config.dry_run {
-        output_dry_run_single(config, console, &result)?;
+        output_dry_run_single(config, console, styles, &result)?;
     } else if config.diff {
         output_diff(&result, false)?;
         if config.verbose {
             console.print(&format!(
-                "[bold green]Diff: {} block(s), {} revision(s)[/]",
-                result.stats.blocks_modified, result.stats.total_revisions
+                "{}",
+                styles.success(format!(
+                    "Diff: {} block(s), {} revision(s)",
+                    result.stats.blocks_modified, result.stats.total_revisions
+                ))
             ));
         }
     } else if args.in_place {
@@ -1836,8 +2295,8 @@ fn output_single_result(
             let backup_path = create_backup(path, &config.backup_ext)?;
             if config.verbose {
                 console.print(&format!(
-                    "[dim]Created backup: {}[/]",
-                    backup_path.display()
+                    "{}",
+                    styles.dim(format!("Created backup: {}", backup_path.display()))
                 ));
             }
         }
@@ -1848,8 +2307,11 @@ fn output_single_result(
 
         if config.verbose {
             console.print(&format!(
-                "[bold green]Modified {} block(s), {} revision(s) applied[/]",
-                result.stats.blocks_modified, result.stats.total_revisions
+                "{}",
+                styles.success(format!(
+                    "Modified {} block(s), {} revision(s) applied",
+                    result.stats.blocks_modified, result.stats.total_revisions
+                ))
             ));
         }
     } else {
@@ -1861,8 +2323,11 @@ fn output_single_result(
 
         if config.verbose {
             console.print(&format!(
-                "[bold green]Processed {} block(s), {} revision(s) applied[/]",
-                result.stats.blocks_found, result.stats.total_revisions
+                "{}",
+                styles.success(format!(
+                    "Processed {} block(s), {} revision(s) applied",
+                    result.stats.blocks_found, result.stats.total_revisions
+                ))
             ));
         }
     }
@@ -1927,7 +2392,12 @@ fn output_json_single(args: &Args, config: &Config, result: &FileResult) -> Resu
 }
 
 /// Output dry-run info for a single file
-fn output_dry_run_single(config: &Config, console: &Console, result: &FileResult) -> Result<()> {
+fn output_dry_run_single(
+    config: &Config,
+    console: &Console,
+    styles: &VerboseStyle,
+    result: &FileResult,
+) -> Result<()> {
     if config.diff && result.would_change {
         output_diff(result, true)?;
     }
@@ -1935,17 +2405,20 @@ fn output_dry_run_single(config: &Config, console: &Console, result: &FileResult
     if config.verbose {
         if result.would_change {
             console.print(&format!(
-                "[bold yellow]Would modify: {}[/]",
-                result.filename
+                "{}",
+                styles.block(format!("Would modify: {}", result.filename))
             ));
             console.print(&format!(
-                "[dim]  {} block(s), {} revision(s)[/]",
-                result.stats.blocks_modified, result.stats.total_revisions
+                "{}",
+                styles.dim(format!(
+                    "  {} block(s), {} revision(s)",
+                    result.stats.blocks_modified, result.stats.total_revisions
+                ))
             ));
         } else {
             console.print(&format!(
-                "[bold green]No changes needed: {}[/]",
-                result.filename
+                "{}",
+                styles.success(format!("No changes needed: {}", result.filename))
             ));
         }
     }
@@ -1958,6 +2431,7 @@ fn output_multiple_results(
     args: &Args,
     config: &Config,
     console: &Console,
+    styles: &VerboseStyle,
     paths: &[PathBuf],
 ) -> Result<RunOutcome> {
     let mut total_files_processed = 0;
@@ -1987,7 +2461,7 @@ fn output_multiple_results(
                     // For JSON with multiple files, output each file's JSON separately
                     output_json_single(args, config, &result)?;
                 } else if config.dry_run {
-                    output_dry_run_single(config, console, &result)?;
+                    output_dry_run_single(config, console, styles, &result)?;
                 } else if config.diff {
                     output_diff(&result, false)?;
                 } else if args.in_place {
@@ -1996,8 +2470,8 @@ fn output_multiple_results(
                         let backup_path = create_backup(path, &config.backup_ext)?;
                         if config.verbose {
                             console.print(&format!(
-                                "[dim]Created backup: {}[/]",
-                                backup_path.display()
+                                "{}",
+                                styles.dim(format!("Created backup: {}", backup_path.display()))
                             ));
                         }
                     }
@@ -2009,14 +2483,19 @@ fn output_multiple_results(
                     if config.verbose {
                         if result.would_change {
                             console.print(&format!(
-                                "[bold green]{}: {} block(s), {} revision(s) applied[/]",
-                                path.display(),
-                                result.stats.blocks_modified,
-                                result.stats.total_revisions
+                                "{}",
+                                styles.success(format!(
+                                    "{}: {} block(s), {} revision(s) applied",
+                                    path.display(),
+                                    result.stats.blocks_modified,
+                                    result.stats.total_revisions
+                                ))
                             ));
                         } else {
-                            console
-                                .print(&format!("[dim]{}: No changes needed[/]", path.display()));
+                            console.print(&styles.dim(format!(
+                                "{}: No changes needed",
+                                path.display()
+                            )));
                         }
                     }
                 } else {
@@ -2037,7 +2516,7 @@ fn output_multiple_results(
                 }
             }
             Err(e) => {
-                eprintln!("[red]Error processing {}:[/] {:#}", path.display(), e);
+                eprintln!("Error processing {}: {:#}", path.display(), e);
                 errors.push((path.clone(), e));
             }
         }
@@ -2046,8 +2525,15 @@ fn output_multiple_results(
     // Print summary for multiple files in verbose mode
     if config.verbose && paths.len() > 1 {
         console.print(&format!(
-            "\n[bold]Summary:[/] {} file(s) processed, {} changed, {} block(s), {} revision(s), {} error(s)",
-            total_files_processed, total_files_changed, total_blocks_modified, total_revisions, errors.len()
+            "{}",
+            styles.bold(format!(
+                "\nSummary: {} file(s) processed, {} changed, {} block(s), {} revision(s), {} error(s)",
+                total_files_processed,
+                total_files_changed,
+                total_blocks_modified,
+                total_revisions,
+                errors.len()
+            ))
         ));
     }
 
@@ -2087,10 +2573,18 @@ fn output_multiple_results(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that change the current working directory.
+    /// These tests cannot run in parallel because std::env::set_current_dir
+    /// affects global process state.
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_args() -> Args {
         Args {
             inputs: vec![],
+            config_file: None,
+            no_config: false,
             recursive: false,
             glob: "*.txt,*.md".to_string(),
             no_gitignore: false,
@@ -2102,6 +2596,7 @@ mod tests {
             tab_width: 4,
             all: false,
             verbose: false,
+            color: ColorMode::Auto,
             diff: false,
             dry_run: false,
             backup: false,
@@ -2130,6 +2625,7 @@ mod tests {
         assert_eq!(args.tab_width, 4);
         assert!(!args.all);
         assert!(!args.verbose);
+        assert!(matches!(args.color, ColorMode::Auto));
         assert!(!args.diff);
         assert!(!args.dry_run);
     }
@@ -2244,6 +2740,7 @@ mod tests {
             glob: "*.txt,*.md".to_string(),
             gitignore: true,
             max_depth: 0,
+            color: ColorMode::Auto,
             verbose: false,
             diff: false,
             dry_run: false,
@@ -2266,6 +2763,7 @@ mod tests {
             glob: "*.txt,*.md".to_string(),
             gitignore: true,
             max_depth: 0,
+            color: ColorMode::Auto,
             verbose: false,
             diff: false,
             dry_run: false,
@@ -4059,5 +4557,692 @@ mod tests {
         let (corrected, _) = correct_lines(lines, &config, &console);
         assert_eq!(corrected[0], "# Header");
         assert_eq!(corrected[6], "Footer text");
+    }
+
+    // =========================================================================
+    // Hook management tests
+    // =========================================================================
+
+    #[test]
+    fn test_generate_check_hook() {
+        let hook = generate_check_hook(&["*.md", "*.txt"]);
+
+        assert!(hook.contains("#!/usr/bin/env bash"));
+        assert!(hook.contains("# aadc pre-commit hook (check mode)"));
+        assert!(hook.contains("aadc --dry-run"));
+        assert!(hook.contains("*.md *.txt"));
+        // Should not *execute* aadc -i (the help message is allowed to mention it)
+        assert!(!hook.contains("aadc -i \"$file\""));
+    }
+
+    #[test]
+    fn test_generate_autofix_hook() {
+        let hook = generate_autofix_hook(&["*.md"]);
+
+        assert!(hook.contains("#!/usr/bin/env bash"));
+        assert!(hook.contains("# aadc pre-commit hook (auto-fix mode)"));
+        assert!(hook.contains("aadc -i"));
+        assert!(hook.contains("git add"));
+        assert!(hook.contains("*.md"));
+    }
+
+    #[test]
+    fn test_default_hook_is_check_mode() {
+        let default = generate_default_hook(&["*.txt"]);
+        let check = generate_check_hook(&["*.txt"]);
+
+        // Default should be identical to check mode
+        assert_eq!(default, check);
+    }
+
+    #[test]
+    fn test_hook_patterns() {
+        let hook = generate_check_hook(&["*.rs", "*.go", "*.py"]);
+
+        assert!(hook.contains("PATTERNS=\"*.rs *.go *.py\""));
+    }
+
+    #[test]
+    fn test_find_git_dir_not_in_repo() {
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir that's not a git repo
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = find_git_dir();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Not in a git repository")
+        );
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_find_git_dir_in_repo() {
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir(&git_dir).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = find_git_dir();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), git_dir);
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_install_creates_hook() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git/hooks
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir(&git_dir).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = hook_install(true, false, None);
+        assert!(result.is_ok());
+
+        // Verify hook was created
+        let hook_path = git_dir.join("hooks").join("pre-commit");
+        assert!(hook_path.exists());
+
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert!(content.contains("# aadc pre-commit hook (check mode)"));
+
+        // Verify it's executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::metadata(&hook_path).unwrap().permissions();
+            assert_eq!(perms.mode() & 0o755, 0o755);
+        }
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_install_autofix_mode() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir(&git_dir).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = hook_install(false, true, None);
+        assert!(result.is_ok());
+
+        let hook_path = git_dir.join("hooks").join("pre-commit");
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert!(content.contains("# aadc pre-commit hook (auto-fix mode)"));
+        assert!(content.contains("aadc -i"));
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_install_custom_patterns() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir(&git_dir).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let patterns = vec!["*.rs".to_string(), "*.go".to_string()];
+        let result = hook_install(true, false, Some(&patterns));
+        assert!(result.is_ok());
+
+        let hook_path = git_dir.join("hooks").join("pre-commit");
+        let content = fs::read_to_string(&hook_path).unwrap();
+        assert!(content.contains("*.rs *.go"));
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_install_backs_up_existing() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git/hooks and existing hook
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        let hooks_dir = git_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        let existing_hook = hooks_dir.join("pre-commit");
+        fs::write(&existing_hook, "#!/bin/bash\necho 'existing hook'").unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = hook_install(true, false, None);
+        assert!(result.is_ok());
+
+        // Verify backup was created
+        let backup_path = hooks_dir.join("pre-commit.pre-aadc");
+        assert!(backup_path.exists());
+        let backup_content = fs::read_to_string(&backup_path).unwrap();
+        assert!(backup_content.contains("existing hook"));
+
+        // Verify new hook was installed
+        let content = fs::read_to_string(&existing_hook).unwrap();
+        assert!(content.contains("# aadc pre-commit hook"));
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_uninstall_removes_aadc_hook() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git/hooks and aadc hook
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        let hooks_dir = git_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        let hook_path = hooks_dir.join("pre-commit");
+        fs::write(&hook_path, generate_check_hook(&["*.md"])).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = hook_uninstall();
+        assert!(result.is_ok());
+        assert!(!hook_path.exists());
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_uninstall_refuses_non_aadc_hook() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git/hooks and non-aadc hook
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        let hooks_dir = git_dir.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+
+        let hook_path = hooks_dir.join("pre-commit");
+        fs::write(&hook_path, "#!/bin/bash\necho 'other hook'").unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        let result = hook_uninstall();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not installed by aadc")
+        );
+
+        // Hook should still exist
+        assert!(hook_path.exists());
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_status_no_hook() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
+        // Save current dir
+        let original_dir = std::env::current_dir().unwrap();
+
+        // Create a temp dir with .git but no hooks
+        let temp = tempfile::tempdir().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir(&git_dir).unwrap();
+
+        std::env::set_current_dir(temp.path()).unwrap();
+
+        // hook_status should succeed even with no hook
+        let result = hook_status();
+        assert!(result.is_ok());
+
+        // Restore
+        std::env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_hook_subcommand_parsing() {
+        let args = Args::parse_from(["aadc", "hook", "install"]);
+        assert!(args.command.is_some());
+        if let Some(Commands::Hook { action }) = args.command {
+            assert!(matches!(action, HookAction::Install { .. }));
+        } else {
+            panic!("Expected Hook command");
+        }
+    }
+
+    #[test]
+    fn test_hook_subcommand_install_check_only() {
+        let args = Args::parse_from(["aadc", "hook", "install", "--check-only"]);
+        if let Some(Commands::Hook { action }) = args.command {
+            if let HookAction::Install {
+                check_only,
+                auto_fix,
+                ..
+            } = action
+            {
+                assert!(check_only);
+                assert!(!auto_fix);
+            } else {
+                panic!("Expected Install action");
+            }
+        } else {
+            panic!("Expected Hook command");
+        }
+    }
+
+    #[test]
+    fn test_hook_subcommand_install_autofix() {
+        let args = Args::parse_from(["aadc", "hook", "install", "--auto-fix"]);
+        if let Some(Commands::Hook { action }) = args.command {
+            if let HookAction::Install {
+                check_only,
+                auto_fix,
+                ..
+            } = action
+            {
+                assert!(!check_only);
+                assert!(auto_fix);
+            } else {
+                panic!("Expected Install action");
+            }
+        } else {
+            panic!("Expected Hook command");
+        }
+    }
+
+    #[test]
+    fn test_hook_subcommand_uninstall() {
+        let args = Args::parse_from(["aadc", "hook", "uninstall"]);
+        if let Some(Commands::Hook { action }) = args.command {
+            assert!(matches!(action, HookAction::Uninstall));
+        } else {
+            panic!("Expected Hook command");
+        }
+    }
+
+    #[test]
+    fn test_hook_subcommand_status() {
+        let args = Args::parse_from(["aadc", "hook", "status"]);
+        if let Some(Commands::Hook { action }) = args.command {
+            assert!(matches!(action, HookAction::Status));
+        } else {
+            panic!("Expected Hook command");
+        }
+    }
+
+    // =========================================================================
+    // Config file tests
+    // =========================================================================
+
+    #[test]
+    fn test_find_config_file_in_current_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(&config_path, "min_score = 0.7").unwrap();
+
+        let found = find_config_file(temp.path());
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), config_path);
+    }
+
+    #[test]
+    fn test_find_config_file_in_parent_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(&config_path, "min_score = 0.7").unwrap();
+
+        // Create a subdirectory
+        let subdir = temp.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+
+        // Should find config in parent
+        let found = find_config_file(&subdir);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), config_path);
+    }
+
+    #[test]
+    fn test_find_config_file_alternative_names() {
+        let temp = tempfile::tempdir().unwrap();
+
+        // Test .aadcrc.toml variant
+        let config_path = temp.path().join(".aadcrc.toml");
+        fs::write(&config_path, "min_score = 0.7").unwrap();
+
+        let found = find_config_file(temp.path());
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), config_path);
+    }
+
+    #[test]
+    fn test_find_config_file_not_found() {
+        let temp = tempfile::tempdir().unwrap();
+        // No config file created
+
+        let found = find_config_file(temp.path());
+        // May find a config in home dir or return None
+        // We can't control home dir, so just verify it doesn't panic
+        let _ = found;
+    }
+
+    #[test]
+    fn test_load_config_file_basic() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+min_score = 0.7
+max_iters = 20
+tab_width = 2
+verbose = true
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+        assert_eq!(config.min_score, Some(0.7));
+        assert_eq!(config.max_iters, Some(20));
+        assert_eq!(config.tab_width, Some(2));
+        assert_eq!(config.verbose, Some(true));
+    }
+
+    #[test]
+    fn test_load_config_file_with_preset() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+preset = "aggressive"
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+        assert_eq!(config.preset, Some(Preset::Aggressive));
+    }
+
+    #[test]
+    fn test_load_config_file_all_options() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+min_score = 0.6
+max_iters = 15
+tab_width = 8
+verbose = true
+json = true
+backup = true
+backup_ext = ".backup"
+recursive = true
+glob = "*.rs"
+gitignore = false
+max_depth = 5
+all = true
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+        assert_eq!(config.min_score, Some(0.6));
+        assert_eq!(config.max_iters, Some(15));
+        assert_eq!(config.tab_width, Some(8));
+        assert_eq!(config.verbose, Some(true));
+        assert_eq!(config.json, Some(true));
+        assert_eq!(config.backup, Some(true));
+        assert_eq!(config.backup_ext, Some(".backup".to_string()));
+        assert_eq!(config.recursive, Some(true));
+        assert_eq!(config.glob, Some("*.rs".to_string()));
+        assert_eq!(config.gitignore, Some(false));
+        assert_eq!(config.max_depth, Some(5));
+        assert_eq!(config.all, Some(true));
+    }
+
+    #[test]
+    fn test_load_config_file_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(&config_path, "").unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+        assert!(config.min_score.is_none());
+        assert!(config.max_iters.is_none());
+    }
+
+    #[test]
+    fn test_load_config_file_unknown_keys_tolerated() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+min_score = 0.7
+unknown_key = "should be ignored"
+another_unknown = 42
+"#,
+        )
+        .unwrap();
+
+        // Should not fail on unknown keys (toml serde default behavior)
+        let config = load_config_file(&config_path);
+        assert!(config.is_ok());
+        assert_eq!(config.unwrap().min_score, Some(0.7));
+    }
+
+    #[test]
+    fn test_load_config_file_invalid_toml() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(&config_path, "this is not valid toml [[[").unwrap();
+
+        let result = load_config_file(&config_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("parse"));
+    }
+
+    #[test]
+    fn test_load_config_file_invalid_preset() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+preset = "nonexistent"
+"#,
+        )
+        .unwrap();
+
+        let result = load_config_file(&config_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_config_no_config_flag() {
+        let args = Args::parse_from(["aadc", "--no-config"]);
+        let config = create_config(&args).unwrap();
+        // Should use CLI defaults, not load any config file
+        assert_eq!(config.min_score, 0.5);
+        assert_eq!(config.max_iters, 10);
+    }
+
+    #[test]
+    fn test_create_config_explicit_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join("custom.toml");
+        fs::write(&config_path, "max_iters = 25\n").unwrap();
+
+        let args = Args::parse_from([
+            "aadc",
+            "--config",
+            config_path.to_str().unwrap(),
+        ]);
+        let config = create_config(&args).unwrap();
+        assert_eq!(config.max_iters, 25);
+    }
+
+    #[test]
+    fn test_create_config_explicit_file_not_found() {
+        let args = Args::parse_from(["aadc", "--config", "/nonexistent/path/config.toml"]);
+        let result = create_config(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_create_config_cli_overrides_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(
+            &config_path,
+            r#"
+max_iters = 25
+tab_width = 8
+verbose = true
+"#,
+        )
+        .unwrap();
+
+        // Create a test file in the temp dir so config is found
+        let test_file = temp.path().join("test.txt");
+        fs::write(&test_file, "").unwrap();
+
+        let args = Args::parse_from([
+            "aadc",
+            "--max-iters",
+            "5",
+            test_file.to_str().unwrap(),
+        ]);
+        let config = create_config(&args).unwrap();
+
+        // CLI value should override file
+        assert_eq!(config.max_iters, 5);
+        // File value should be used when CLI uses default
+        assert_eq!(config.tab_width, 8);
+        assert!(config.verbose);
+    }
+
+    #[test]
+    fn test_create_config_preset_from_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let config_path = temp.path().join(".aadcrc");
+        fs::write(&config_path, "preset = \"strict\"\n").unwrap();
+
+        let test_file = temp.path().join("test.txt");
+        fs::write(&test_file, "").unwrap();
+
+        let args = Args::parse_from(["aadc", test_file.to_str().unwrap()]);
+        let config = create_config(&args).unwrap();
+
+        assert_eq!(config.preset, Some(Preset::Strict));
+    }
+
+    #[test]
+    fn test_config_subcommand_parsing() {
+        let args = Args::parse_from(["aadc", "config", "init"]);
+        assert!(args.command.is_some());
+        if let Some(Commands::Config { action }) = args.command {
+            assert!(matches!(action, ConfigAction::Init { global: false }));
+        } else {
+            panic!("Expected Config command");
+        }
+    }
+
+    #[test]
+    fn test_config_subcommand_init_global() {
+        let args = Args::parse_from(["aadc", "config", "init", "--global"]);
+        if let Some(Commands::Config { action }) = args.command {
+            if let ConfigAction::Init { global } = action {
+                assert!(global);
+            } else {
+                panic!("Expected Init action");
+            }
+        } else {
+            panic!("Expected Config command");
+        }
+    }
+
+    #[test]
+    fn test_config_subcommand_show() {
+        let args = Args::parse_from(["aadc", "config", "show"]);
+        if let Some(Commands::Config { action }) = args.command {
+            assert!(matches!(action, ConfigAction::Show));
+        } else {
+            panic!("Expected Config command");
+        }
+    }
+
+    #[test]
+    fn test_config_subcommand_path() {
+        let args = Args::parse_from(["aadc", "config", "path"]);
+        if let Some(Commands::Config { action }) = args.command {
+            assert!(matches!(action, ConfigAction::Path));
+        } else {
+            panic!("Expected Config command");
+        }
+    }
+
+    #[test]
+    fn test_args_config_file_option() {
+        let args = Args::parse_from(["aadc", "--config", "/path/to/config"]);
+        assert_eq!(args.config_file, Some(PathBuf::from("/path/to/config")));
+    }
+
+    #[test]
+    fn test_args_no_config_option() {
+        let args = Args::parse_from(["aadc", "--no-config"]);
+        assert!(args.no_config);
     }
 }
