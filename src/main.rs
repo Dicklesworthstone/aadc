@@ -61,6 +61,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exit Codes
@@ -538,6 +539,80 @@ impl VerboseStyle {
     fn bold(&self, text: impl fmt::Display) -> String {
         self.wrap("bold", text)
     }
+
+    fn stat_label(&self, text: impl fmt::Display) -> String {
+        self.wrap("bold blue", text)
+    }
+
+    fn separator(&self) -> String {
+        self.wrap("dim", "───")
+    }
+}
+
+/// Print a statistics summary to stderr
+fn print_stats_summary(
+    stats: &Stats,
+    files_processed: usize,
+    files_changed: usize,
+    errors: usize,
+    console: &Console,
+    styles: &VerboseStyle,
+) {
+    console.print("");
+    console.print(&format!(
+        "{} Summary {}",
+        styles.separator(),
+        styles.separator()
+    ));
+
+    // File statistics (for multiple files)
+    if files_processed > 1 {
+        console.print(&format!(
+            "  {} {} processed, {} modified, {} unchanged",
+            styles.stat_label("Files:"),
+            files_processed,
+            files_changed,
+            files_processed.saturating_sub(files_changed)
+        ));
+    }
+
+    // Block statistics
+    console.print(&format!(
+        "  {} {} found, {} processed, {} skipped",
+        styles.stat_label("Blocks:"),
+        stats.blocks_found,
+        stats.blocks_modified,
+        stats.blocks_skipped
+    ));
+
+    // Revision statistics
+    console.print(&format!(
+        "  {} {} applied, {} skipped",
+        styles.stat_label("Revisions:"),
+        stats.total_revisions,
+        stats.revisions_skipped
+    ));
+
+    // Performance statistics
+    let elapsed_ms = stats.elapsed.as_secs_f64() * 1000.0;
+    let lines_per_sec = stats.lines_per_second();
+    console.print(&format!(
+        "  {} {:.2}ms ({:.0} lines/sec)",
+        styles.stat_label("Time:"),
+        elapsed_ms,
+        lines_per_sec
+    ));
+
+    // Error count if any
+    if errors > 0 {
+        console.print(&format!(
+            "  {} {}",
+            styles.wrap("bold red", "Errors:"),
+            errors
+        ));
+    }
+
+    console.print("");
 }
 
 fn build_console(color: ColorMode) -> (Console, VerboseStyle) {
@@ -914,13 +989,45 @@ fn validate_args(args: &Args) -> Result<()> {
 }
 
 /// Statistics collected during correction
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Stats {
+    /// Number of diagram blocks detected
     blocks_found: usize,
+    /// Number of blocks that received modifications
     blocks_modified: usize,
+    /// Number of blocks skipped (low confidence or outside line ranges)
+    blocks_skipped: usize,
+    /// Total number of revisions applied
     total_revisions: usize,
-    #[allow(dead_code)]
-    iterations: usize,
+    /// Number of revisions skipped (below min_score threshold)
+    revisions_skipped: usize,
+    /// Total number of lines processed
+    total_lines: usize,
+    /// Processing elapsed time
+    elapsed: Duration,
+}
+
+impl Stats {
+    /// Merge another Stats into this one (for aggregating across files)
+    fn merge(&mut self, other: &Stats) {
+        self.blocks_found += other.blocks_found;
+        self.blocks_modified += other.blocks_modified;
+        self.blocks_skipped += other.blocks_skipped;
+        self.total_revisions += other.total_revisions;
+        self.revisions_skipped += other.revisions_skipped;
+        self.total_lines += other.total_lines;
+        self.elapsed += other.elapsed;
+    }
+
+    /// Calculate lines processed per second
+    fn lines_per_second(&self) -> f64 {
+        let secs = self.elapsed.as_secs_f64();
+        if secs > 0.0 {
+            self.total_lines as f64 / secs
+        } else {
+            self.total_lines as f64
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1536,6 +1643,14 @@ impl Revision {
 // Block Correction
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Result of correcting a single block
+struct BlockCorrectionResult {
+    /// Number of revisions applied
+    revisions_applied: usize,
+    /// Number of revisions skipped due to low score
+    revisions_skipped: usize,
+}
+
 /// Correct a single diagram block using iterative refinement.
 ///
 /// This is the core correction algorithm. It runs a loop that:
@@ -1555,15 +1670,16 @@ impl Revision {
 ///
 /// # Returns
 ///
-/// The total number of revisions applied across all iterations.
+/// A `BlockCorrectionResult` with counts of applied and skipped revisions.
 fn correct_block(
     lines: &mut [String],
     block: &DiagramBlock,
     config: &Config,
     console: &Console,
     styles: &VerboseStyle,
-) -> usize {
+) -> BlockCorrectionResult {
     let mut total_revisions = 0;
+    let mut total_skipped = 0;
 
     for iteration in 0..config.max_iters {
         // Analyze current state
@@ -1608,12 +1724,15 @@ fn correct_block(
             }
         }
 
-        // Filter by score
+        // Filter by score and count skipped
         let min_score = config.effective_min_score();
+        let total_candidates = revisions.len();
         let valid_revisions: Vec<_> = revisions
             .into_iter()
             .filter(|r| r.score(&analyzed, block.start) >= min_score)
             .collect();
+        let skipped_this_iter = total_candidates - valid_revisions.len();
+        total_skipped += skipped_this_iter;
 
         if valid_revisions.is_empty() {
             // Converged
@@ -1647,7 +1766,10 @@ fn correct_block(
         }
     }
 
-    total_revisions
+    BlockCorrectionResult {
+        revisions_applied: total_revisions,
+        revisions_skipped: total_skipped,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1729,8 +1851,10 @@ fn correct_lines(
     console: &Console,
     styles: &VerboseStyle,
 ) -> (Vec<String>, Stats) {
+    let start_time = Instant::now();
     let mut stats = Stats::default();
     let total_lines = lines.len();
+    stats.total_lines = total_lines;
 
     // Show line range info in verbose mode
     if config.verbose {
@@ -1765,6 +1889,7 @@ fn correct_lines(
                     &styles.dim("Passing through unchanged (use --all to force processing)"),
                 );
             }
+            stats.elapsed = start_time.elapsed();
             return (lines, stats);
         }
     }
@@ -1804,6 +1929,7 @@ fn correct_lines(
                             .to_string(),
                     );
                 }
+                stats.blocks_skipped += 1;
                 continue;
             }
         }
@@ -1822,13 +1948,15 @@ fn correct_lines(
             );
         }
 
-        let revisions = correct_block(&mut lines, block, config, console, styles);
-        if revisions > 0 {
+        let result = correct_block(&mut lines, block, config, console, styles);
+        if result.revisions_applied > 0 {
             stats.blocks_modified += 1;
-            stats.total_revisions += revisions;
+            stats.total_revisions += result.revisions_applied;
         }
+        stats.revisions_skipped += result.revisions_skipped;
     }
 
+    stats.elapsed = start_time.elapsed();
     (lines, stats)
 }
 
@@ -2509,16 +2637,6 @@ fn output_single_result(
         output_dry_run_single(config, console, styles, &result)?;
     } else if config.diff {
         output_diff(&result, false)?;
-        if config.verbose {
-            console.print(
-                &styles
-                    .success(format!(
-                        "Diff: {} block(s), {} revision(s)",
-                        result.stats.blocks_modified, result.stats.total_revisions
-                    ))
-                    .to_string(),
-            );
-        }
     } else if args.in_place {
         // Must have a file path for in-place
         let path = args
@@ -2540,34 +2658,24 @@ fn output_single_result(
         let output = result.corrected.join("\n");
         fs::write(path, &output)
             .with_context(|| format!("Failed to write to file: {}", path.display()))?;
-
-        if config.verbose {
-            console.print(
-                &styles
-                    .success(format!(
-                        "Modified {} block(s), {} revision(s) applied",
-                        result.stats.blocks_modified, result.stats.total_revisions
-                    ))
-                    .to_string(),
-            );
-        }
     } else {
         // Stdout mode
         let mut stdout = io::stdout().lock();
         for line in &result.corrected {
             writeln!(stdout, "{}", line)?;
         }
+    }
 
-        if config.verbose {
-            console.print(
-                &styles
-                    .success(format!(
-                        "Processed {} block(s), {} revision(s) applied",
-                        result.stats.blocks_found, result.stats.total_revisions
-                    ))
-                    .to_string(),
-            );
-        }
+    // Print summary in verbose mode for single file
+    if config.verbose {
+        print_stats_summary(
+            &result.stats,
+            1,
+            if would_change { 1 } else { 0 },
+            0,
+            console,
+            styles,
+        );
     }
 
     Ok(RunOutcome {
@@ -2677,8 +2785,7 @@ fn output_multiple_results(
 ) -> Result<RunOutcome> {
     let mut total_files_processed = 0;
     let mut total_files_changed = 0;
-    let mut total_blocks_modified = 0;
-    let mut total_revisions = 0;
+    let mut aggregated_stats = Stats::default();
     let mut any_would_change = false;
     let mut errors: Vec<(PathBuf, anyhow::Error)> = Vec::new();
 
@@ -2695,8 +2802,7 @@ fn output_multiple_results(
                     total_files_changed += 1;
                 }
                 total_files_processed += 1;
-                total_blocks_modified += result.stats.blocks_modified;
-                total_revisions += result.stats.total_revisions;
+                aggregated_stats.merge(&result.stats);
 
                 // Handle output based on mode
                 if config.json {
@@ -2765,19 +2871,15 @@ fn output_multiple_results(
         }
     }
 
-    // Print summary for multiple files in verbose mode
-    if config.verbose && paths.len() > 1 {
-        console.print(
-            &styles
-                .bold(format!(
-                    "\nSummary: {} file(s) processed, {} changed, {} block(s), {} revision(s), {} error(s)",
-                    total_files_processed,
-                    total_files_changed,
-                    total_blocks_modified,
-                    total_revisions,
-                    errors.len()
-                ))
-                .to_string(),
+    // Print summary in verbose mode
+    if config.verbose {
+        print_stats_summary(
+            &aggregated_stats,
+            total_files_processed,
+            total_files_changed,
+            errors.len(),
+            console,
+            styles,
         );
     }
 
