@@ -53,6 +53,7 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rich_rust::terminal;
 use rich_rust::{ColorSystem, Console};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,9 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,6 +371,14 @@ struct Args {
     #[arg(short = 'n', long, conflicts_with = "in_place")]
     dry_run: bool,
 
+    /// Watch file for changes and auto-correct
+    #[arg(short = 'w', long, conflicts_with_all = ["in_place", "recursive", "diff", "dry_run", "json"])]
+    watch: bool,
+
+    /// Debounce interval in milliseconds (for --watch mode)
+    #[arg(long, default_value = "500", requires = "watch")]
+    debounce_ms: u64,
+
     /// Create backup file before in-place editing
     #[arg(long, requires = "in_place")]
     backup: bool,
@@ -462,6 +474,8 @@ struct Config {
     verbose: bool,
     diff: bool,
     dry_run: bool,
+    watch: bool,
+    debounce_ms: u64,
     backup: bool,
     backup_ext: String,
     json: bool,
@@ -487,6 +501,8 @@ impl From<&Args> for Config {
             verbose: args.verbose,
             diff: args.diff,
             dry_run: args.dry_run,
+            watch: args.watch,
+            debounce_ms: args.debounce_ms,
             backup: args.backup,
             backup_ext: args.backup_ext.clone(),
             json: args.json,

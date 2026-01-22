@@ -111,6 +111,30 @@ Found 2 diagram block(s)
 Processed 2 block(s), 4 revision(s) applied
 ```
 
+### Statistics Summary (Verbose Mode)
+
+Verbose mode ends with a concise statistics summary:
+
+```
+─── Summary ───
+  Blocks: 2 found, 2 processed, 0 skipped
+  Revisions: 4 applied, 0 skipped
+  Time: 1.23ms (12345 lines/sec)
+```
+
+When processing multiple files (or recursive mode), a file summary is included:
+
+```
+─── Summary ───
+  Files: 3 processed, 2 modified, 1 unchanged
+  Blocks: 5 found, 4 processed, 1 skipped
+  Revisions: 9 applied, 2 skipped
+  Time: 6.40ms (7800 lines/sec)
+```
+
+For machine-readable output, `--json` includes the same metrics in the `input`,
+`processing`, and `output` fields.
+
 ---
 
 ## How It Works
