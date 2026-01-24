@@ -4792,6 +4792,8 @@ mod tests {
 
     #[test]
     fn test_find_git_dir_not_in_repo() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
         // Save current dir
         let original_dir = std::env::current_dir().unwrap();
 
@@ -4814,6 +4816,8 @@ mod tests {
 
     #[test]
     fn test_find_git_dir_in_repo() {
+        let _guard = CWD_LOCK.lock().unwrap();
+
         // Save current dir
         let original_dir = std::env::current_dir().unwrap();
 

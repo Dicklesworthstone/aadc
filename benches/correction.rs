@@ -8,7 +8,26 @@
 //! refactored to expose a library interface.
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use std::path::PathBuf;
 use std::process::Command;
+
+fn aadc_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("CARGO_BIN_EXE_aadc") {
+        return PathBuf::from(path);
+    }
+
+    let debug = PathBuf::from("target/debug/aadc");
+    if debug.exists() {
+        return debug;
+    }
+
+    let release = PathBuf::from("target/release/aadc");
+    if release.exists() {
+        return release;
+    }
+
+    panic!("aadc binary not found; set CARGO_BIN_EXE_aadc or build target/debug|release");
+}
 
 /// Benchmark processing a small ASCII diagram file
 fn bench_small_file(c: &mut Criterion) {
@@ -20,9 +39,11 @@ fn bench_small_file(c: &mut Criterion) {
         return;
     }
 
+    let aadc = aadc_binary();
+
     c.bench_function("small_file", |b| {
         b.iter(|| {
-            Command::new("./target/release/aadc")
+            Command::new(&aadc)
                 .arg(input_file)
                 .output()
                 .expect("Failed to execute aadc")
@@ -39,9 +60,11 @@ fn bench_medium_file(c: &mut Criterion) {
         return;
     }
 
+    let aadc = aadc_binary();
+
     c.bench_function("medium_file", |b| {
         b.iter(|| {
-            Command::new("./target/release/aadc")
+            Command::new(&aadc)
                 .arg(input_file)
                 .output()
                 .expect("Failed to execute aadc")
@@ -58,9 +81,11 @@ fn bench_cjk_content(c: &mut Criterion) {
         return;
     }
 
+    let aadc = aadc_binary();
+
     c.bench_function("cjk_content", |b| {
         b.iter(|| {
-            Command::new("./target/release/aadc")
+            Command::new(&aadc)
                 .arg(input_file)
                 .output()
                 .expect("Failed to execute aadc")
@@ -77,9 +102,11 @@ fn bench_verbose_mode(c: &mut Criterion) {
         return;
     }
 
+    let aadc = aadc_binary();
+
     c.bench_function("verbose_mode", |b| {
         b.iter(|| {
-            Command::new("./target/release/aadc")
+            Command::new(&aadc)
                 .arg("-v")
                 .arg(input_file)
                 .output()
