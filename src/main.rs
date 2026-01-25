@@ -1302,6 +1302,23 @@ struct SuffixBorder {
     is_closing: bool,
 }
 
+/// Calculate the visual width of a single character in terminal columns.
+///
+/// - ASCII characters: 1 column
+/// - Box drawing characters (U+2500-U+257F): 1 column
+/// - CJK/emoji (U+1100 and above, excluding box drawing): 2 columns
+/// - Other Unicode below U+1100: 1 column
+fn char_width(c: char) -> usize {
+    // Box drawing characters are above U+1100 but should be 1 column wide,
+    // so check them first to avoid the wide character branch.
+    if c.is_ascii() || is_box_char(c) || c < '\u{1100}' {
+        1
+    } else {
+        // CJK characters, emoji, and other wide Unicode
+        2
+    }
+}
+
 /// Calculate the visual width of a string in terminal columns.
 ///
 /// Handles different character widths:
@@ -1319,23 +1336,7 @@ struct SuffixBorder {
 ///
 /// This is critical for correct padding calculations in diagrams.
 fn visual_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii() {
-                1
-            } else {
-                // Simple heuristic: most CJK and emoji are double-width
-                // Box drawing chars are single-width
-                if is_box_char(c) {
-                    1
-                } else if c >= '\u{1100}' {
-                    2
-                } else {
-                    1
-                }
-            }
-        })
-        .sum()
+    s.chars().map(char_width).sum()
 }
 
 /// Classify a single line
@@ -1791,7 +1792,10 @@ fn correct_block(
 // Main Correction Logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Expand tabs to spaces
+/// Expand tabs to spaces, accounting for character visual width.
+///
+/// Tab stops are calculated based on visual columns, not character count.
+/// This ensures correct alignment when CJK or other wide characters are present.
 fn expand_tabs(line: &str, tab_width: usize) -> String {
     let mut result = String::with_capacity(line.len());
     let mut col = 0;
@@ -1803,7 +1807,7 @@ fn expand_tabs(line: &str, tab_width: usize) -> String {
             col += spaces;
         } else {
             result.push(c);
-            col += 1;
+            col += char_width(c);
         }
     }
 
@@ -4472,6 +4476,22 @@ mod tests {
     #[test]
     fn test_expand_tabs_empty() {
         assert_eq!(expand_tabs("", 4), "");
+    }
+
+    #[test]
+    fn test_expand_tabs_with_cjk() {
+        // CJK character "中" has visual width 2, so:
+        // "中\tx" with tab_width=4: col starts at 0, "中" takes cols 0-1 (width 2),
+        // tab at col 2 should expand to 2 spaces to reach col 4
+        assert_eq!(expand_tabs("中\tx", 4), "中  x");
+
+        // "a中\tx" with tab_width=4: "a" at col 0 (width 1), "中" at cols 1-2 (width 2),
+        // col is now 3, tab expands to 1 space to reach col 4
+        assert_eq!(expand_tabs("a中\tx", 4), "a中 x");
+
+        // "中中\tx" with tab_width=4: two CJK chars = width 4, col is 4,
+        // tab at col 4 expands to 4 spaces to reach col 8
+        assert_eq!(expand_tabs("中中\tx", 4), "中中    x");
     }
 
     // =========================================================================
