@@ -53,17 +53,17 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rich_rust::terminal;
 use rich_rust::{ColorSystem, Console};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,7 +458,6 @@ enum HookAction {
 
 /// Runtime configuration derived from CLI args
 #[derive(Debug)]
-#[allow(dead_code)] // watch and debounce_ms reserved for future watch mode
 struct Config {
     max_iters: usize,
     min_score: f64,
@@ -2580,7 +2579,10 @@ fn watch_and_correct(
         anyhow::bail!("File not found: {}", path.display());
     }
     if !path.is_file() {
-        anyhow::bail!("--watch requires a file, not a directory: {}", path.display());
+        anyhow::bail!(
+            "--watch requires a file, not a directory: {}",
+            path.display()
+        );
     }
 
     // Set up Ctrl+C handler
@@ -2621,10 +2623,7 @@ fn watch_and_correct(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(event) => {
                 // Only process file modification events
-                if matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                ) {
+                if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                     let now = Instant::now();
                     if now.duration_since(last_event) >= debounce {
                         last_event = now;
