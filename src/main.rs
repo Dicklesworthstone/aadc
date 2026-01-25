@@ -2644,8 +2644,11 @@ fn watch_and_correct(
                                 );
 
                                 if result.would_change {
-                                    // Write the corrected content back
-                                    let output = result.corrected.join("\n");
+                                    // Write the corrected content back with trailing newline
+                                    let mut output = result.corrected.join("\n");
+                                    if !output.is_empty() {
+                                        output.push('\n');
+                                    }
                                     match fs::write(path, &output) {
                                         Ok(()) => {
                                             eprintln!(
@@ -2803,11 +2806,15 @@ fn output_single_result(
             }
         }
 
-        let output = result.corrected.join("\n");
+        // Write with trailing newline to preserve Unix text file convention
+        let mut output = result.corrected.join("\n");
+        if !output.is_empty() {
+            output.push('\n');
+        }
         fs::write(path, &output)
             .with_context(|| format!("Failed to write to file: {}", path.display()))?;
     } else {
-        // Stdout mode
+        // Stdout mode - writeln! already adds newlines
         let mut stdout = io::stdout().lock();
         for line in &result.corrected {
             writeln!(stdout, "{}", line)?;
@@ -2973,7 +2980,11 @@ fn output_multiple_results(
                         }
                     }
 
-                    let output = result.corrected.join("\n");
+                    // Write with trailing newline to preserve Unix text file convention
+                    let mut output = result.corrected.join("\n");
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
                     fs::write(path, &output)
                         .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
