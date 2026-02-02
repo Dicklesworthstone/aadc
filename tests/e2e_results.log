@@ -1,26 +1,366 @@
 ================================================================================
 AADC E2E Test Results
 ================================================================================
-Run Time:    2026-01-21 05:07:43
-Host:        threadripperje
-Directory:   /dp/aadc
+Run Time:    2026-02-01 23:01:10
+Host:        SenseDemoBox
+Directory:   /data/projects/aadc
 Filter:      (none)
 Verbose:     false
 ================================================================================
 
-[05:07:43] [INFO] Building aadc in release mode...
+[23:01:10] [INFO] Building aadc in release mode...
 
 --- Build Output ---
-    Finished `release` profile [optimized] target(s) in 0.11s
-[05:07:43] [PASS] Build successful
-[05:07:43] [INFO] Starting test suites...
-[05:07:43] [SUITE] Running: cargo unit tests
+   Compiling libc v0.2.180
+   Compiling proc-macro2 v1.0.105
+   Compiling unicode-ident v1.0.22
+   Compiling quote v1.0.43
+   Compiling cfg-if v1.0.4
+   Compiling serde_core v1.0.228
+   Compiling log v0.4.29
+   Compiling memchr v2.7.6
+   Compiling autocfg v1.5.0
+   Compiling foldhash v0.2.0
+   Compiling equivalent v1.0.2
+   Compiling allocator-api2 v0.2.21
+   Compiling serde v1.0.228
+   Compiling bitflags v2.10.0
+   Compiling parking_lot_core v0.9.12
+   Compiling unicode-segmentation v1.12.0
+   Compiling regex-syntax v0.8.8
+   Compiling crossbeam-utils v0.8.21
+   Compiling signal-hook v0.3.18
+   Compiling smallvec v1.15.1
+   Compiling scopeguard v1.2.0
+   Compiling cfg_aliases v0.2.1
+   Compiling rustix v1.1.3
+   Compiling utf8parse v0.2.2
+   Compiling linux-raw-sys v0.11.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling colorchoice v1.0.4
+   Compiling anstyle v1.0.13
+   Compiling same-file v1.0.6
+   Compiling zmij v1.0.16
+   Compiling litrs v1.0.0
+   Compiling heck v0.5.0
+   Compiling strsim v0.11.1
+   Compiling bitflags v1.3.2
+   Compiling option-ext v0.2.0
+   Compiling serde_json v1.0.149
+   Compiling clap_lex v0.7.7
+   Compiling winnow v0.7.14
+   Compiling toml_write v0.1.2
+   Compiling anyhow v1.0.100
+   Compiling once_cell v1.21.3
+   Compiling itoa v1.0.17
+   Compiling unicode-width v0.2.2
+   Compiling similar v2.7.0
+   Compiling lock_api v0.4.14
+   Compiling anstyle-parse v0.2.7
+   Compiling nix v0.30.1
+   Compiling walkdir v2.5.0
+   Compiling num-traits v0.2.19
+   Compiling anstream v0.6.21
+   Compiling hashbrown v0.16.1
+   Compiling convert_case v0.10.0
+   Compiling clap_builder v4.5.54
+   Compiling document-features v0.2.12
+   Compiling aho-corasick v1.1.4
+   Compiling bstr v1.12.1
+   Compiling crossbeam-epoch v0.9.18
+   Compiling crossbeam-deque v0.8.6
+   Compiling syn v2.0.114
+   Compiling indexmap v2.13.0
+   Compiling lru v0.16.3
+   Compiling num-integer v0.1.46
+   Compiling num-bigint v0.4.6
+   Compiling errno v0.3.14
+   Compiling mio v1.1.1
+   Compiling inotify-sys v0.1.5
+   Compiling dirs-sys v0.5.0
+   Compiling mio v0.8.11
+   Compiling filetime v0.2.27
+   Compiling inotify v0.9.6
+   Compiling signal-hook-registry v1.4.8
+   Compiling dirs v6.0.0
+   Compiling parking_lot v0.12.5
+   Compiling regex-automata v0.4.13
+   Compiling notify v6.1.1
+   Compiling signal-hook-mio v0.2.5
+   Compiling ctrlc v3.5.1
+   Compiling num-rational v0.4.2
+   Compiling serde_derive v1.0.228
+   Compiling derive_more-impl v2.1.1
+   Compiling clap_derive v4.5.49
+   Compiling derive_more v2.1.1
+   Compiling crossterm v0.29.0
+   Compiling regex v1.12.2
+   Compiling globset v0.4.18
+   Compiling ignore v0.4.25
+   Compiling rich_rust v0.1.0 (https://github.com/Dicklesworthstone/rich_rust?rev=2fa9e002f293ddf2e5dd917b09f0b1371c33a827#2fa9e002)
+   Compiling clap v4.5.54
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling toml_edit v0.22.27
+   Compiling toml v0.8.23
+   Compiling aadc v0.1.0 (/data/projects/aadc)
+    Finished `release` profile [optimized] target(s) in 27.51s
+[23:01:38] [PASS] Build successful
+[23:01:38] [INFO] Starting test suites...
+[23:01:38] [SUITE] Running: cargo unit tests
 
 --- Cargo Tests ---
-    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (target/debug/deps/aadc-ca9450bbddb90334)
 
-[05:12:42] [FAIL] Cargo tests: 0 passed, 0 failed (298s)
-[05:12:42] [SUITE] Running: e2e_basic_cli
+running 208 tests
+test tests::test_analyze_line_blank ... ok
+test tests::test_analyze_line_no_suffix_border ... ok
+test tests::test_analyze_line_indented ... ok
+test tests::test_analyze_line_strong_with_border ... ok
+test tests::test_analyze_line_unicode_border ... ok
+test tests::test_args_backup ... ok
+test tests::test_args_backup_custom_ext ... ok
+test tests::test_args_custom ... ok
+test tests::test_args_config_file_option ... ok
+test tests::test_args_defaults ... ok
+test tests::test_args_dry_run ... ok
+test tests::test_args_dry_run_with_diff ... ok
+test tests::test_args_dry_run_with_verbose ... ok
+test tests::test_block_overlaps_ranges ... ok
+test tests::test_args_json ... ok
+test tests::test_args_dry_run_long ... ok
+test tests::test_args_multiple_files ... ok
+test tests::test_args_no_config_option ... ok
+test tests::test_args_lines_multiple_ranges ... ok
+test tests::test_args_preset_conflicts_with_min_score ... ok
+test tests::test_args_lines_parsing ... ok
+test tests::test_classify_line_blank_mixed_whitespace ... ok
+test tests::test_args_preset_relaxed ... ok
+test tests::test_args_multiple_files_with_inplace ... ok
+test tests::test_classify_line_blank_empty ... ok
+test tests::test_args_preset_short ... ok
+test tests::test_classify_line_blank_spaces ... ok
+test tests::test_args_preset_long ... ok
+test tests::test_classify_line_blank_tabs ... ok
+test tests::test_classify_line_none_numbers ... ok
+test tests::test_classify_line_none_plain_text ... ok
+test tests::test_classify_line_none_punctuation ... ok
+test tests::test_args_recursive_custom ... ok
+test tests::test_args_recursive_defaults ... ok
+test tests::test_classify_line_strong_ascii_corners ... ok
+test tests::test_classify_line_strong_border_both_sides ... ok
+test tests::test_classify_line_strong_high_ratio ... ok
+test tests::test_classify_line_strong_unicode_double ... ok
+test tests::test_classify_line_strong_unicode_light ... ok
+test tests::test_classify_line_weak_few_box_chars ... ok
+test tests::test_classify_line_weak_single_border ... ok
+test tests::test_correct_lines_all_blocks_bypasses_quick_scan ... ok
+test tests::test_correct_lines_passthrough_skips_tabs ... ok
+test tests::test_correction_already_aligned ... ok
+test tests::test_correct_lines_with_ranges ... ok
+test tests::test_correction_empty_input ... ok
+test tests::test_correction_max_iters_limit ... ok
+test tests::test_correction_min_score_filter ... ok
+test tests::test_config_subcommand_parsing ... ok
+test tests::test_config_subcommand_init_global ... ok
+test tests::test_correction_no_diagrams ... ok
+test tests::test_config_subcommand_show ... ok
+test tests::test_config_subcommand_path ... ok
+test tests::test_correction_multiple_blocks ... ok
+test tests::test_correction_preserves_non_diagram_content ... ok
+test tests::test_correction_simple ... ok
+test tests::test_correction_unicode ... ok
+test tests::test_correction_with_tabs ... ok
+test tests::test_create_backup ... ok
+test tests::test_create_backup_custom_extension ... ok
+test tests::test_create_backup_preserves_extension ... ok
+test tests::test_default_hook_is_check_mode ... ok
+test tests::test_detect_suffix_border_ascii_pipe ... ok
+test tests::test_detect_suffix_border ... ok
+test tests::test_detect_suffix_border_column_position ... ok
+test tests::test_detect_suffix_border_corner ... ok
+test tests::test_detect_suffix_border_junction ... ok
+test tests::test_detect_suffix_border_none_empty ... ok
+test tests::test_detect_suffix_border_none_no_border ... ok
+test tests::test_detect_suffix_border_trailing_spaces ... ok
+test tests::test_create_config_explicit_file_not_found ... ok
+test tests::test_create_config_no_config_flag ... ok
+test tests::test_detect_suffix_border_unicode_corner ... ok
+test tests::test_detect_suffix_border_unicode_light ... ok
+test tests::test_detect_vertical_border_ascii ... ok
+test tests::test_detect_vertical_border_empty_defaults_to_ascii ... ok
+test tests::test_create_config_explicit_file ... ok
+test tests::test_detect_vertical_border_mixed_prefers_most_common ... ok
+test tests::test_create_config_preset_from_file ... ok
+test tests::test_create_config_cli_overrides_file ... ok
+test tests::test_detect_vertical_border_no_borders_defaults_to_ascii ... ok
+test tests::test_detect_vertical_border_unicode_double ... ok
+test tests::test_detect_vertical_border_unicode_light ... ok
+test tests::test_effective_min_score_with_preset ... ok
+test tests::test_effective_min_score_without_preset ... ok
+test tests::test_expand_tabs_empty ... ok
+test tests::test_expand_tabs_middle_of_line ... ok
+test tests::test_expand_tabs_multiple ... ok
+test tests::test_expand_tabs_no_tabs ... ok
+test tests::test_discover_recursive_files_glob_matching ... ok
+test tests::test_expand_tabs_start_of_line ... ok
+test tests::test_discover_recursive_files_max_depth ... ok
+test tests::test_expand_tabs_width_2 ... ok
+test tests::test_expand_tabs_width_8 ... ok
+test tests::test_expand_tabs_with_cjk ... ok
+test tests::test_find_config_file_alternative_names ... ok
+test tests::test_find_config_file_in_current_dir ... ok
+test tests::test_find_config_file_in_parent_dir ... ok
+test tests::test_find_diagram_blocks_all_flag ... ok
+test tests::test_find_config_file_not_found ... ok
+test tests::test_find_diagram_blocks_at_end ... ok
+test tests::test_find_diagram_blocks_at_start ... ok
+test tests::test_find_diagram_blocks_confidence_high ... ok
+test tests::test_find_diagram_blocks_empty_input ... ok
+test tests::test_find_diagram_blocks_large_gap_splits ... ok
+test tests::test_find_diagram_blocks_multiple ... ok
+test tests::test_find_diagram_blocks_no_diagrams ... ok
+test tests::test_find_diagram_blocks_only_blanks ... ok
+test tests::test_find_diagram_blocks_simple ... ok
+test tests::test_find_diagram_blocks_trims_trailing_blank ... ok
+test tests::test_find_diagram_blocks_unicode ... ok
+test tests::test_find_diagram_blocks_with_blank_gap ... ok
+test tests::test_find_git_dir_in_repo ... ok
+test tests::test_format_line_ranges ... ok
+test tests::test_format_line_ranges_open_ended ... ok
+test tests::test_find_git_dir_not_in_repo ... ok
+test tests::test_generate_autofix_hook ... ok
+test tests::test_generate_check_hook ... ok
+test tests::test_hook_install_autofix_mode ... ok
+test tests::test_hook_patterns ... ok
+test tests::test_hook_install_custom_patterns ... ok
+test tests::test_hook_install_creates_hook ... ok
+test tests::test_invalid_range_non_numeric ... ok
+test tests::test_invalid_range_reversed ... ok
+test tests::test_hook_install_backs_up_existing ... ok
+test tests::test_invalid_range_zero ... ok
+test tests::test_is_border_char_corners ... ok
+test tests::test_hook_status_no_hook ... ok
+test tests::test_is_border_char_junctions ... ok
+test tests::test_hook_subcommand_install_autofix ... ok
+test tests::test_is_border_char_negative ... ok
+test tests::test_hook_subcommand_install_check_only ... ok
+test tests::test_is_border_char_verticals ... ok
+test tests::test_hook_subcommand_parsing ... ok
+test tests::test_hook_uninstall_refuses_non_aadc_hook ... ok
+test tests::test_hook_subcommand_status ... ok
+test tests::test_is_box_char_corners ... ok
+test tests::test_is_box_char_horizontals ... ok
+test tests::test_is_box_char_junctions ... ok
+test tests::test_is_box_char_negative ... ok
+test tests::test_hook_subcommand_uninstall ... ok
+test tests::test_discover_recursive_files_respects_gitignore ... ok
+test tests::test_is_corner_ascii ... ok
+test tests::test_is_corner_double ... ok
+test tests::test_is_box_char_verticals ... ok
+test tests::test_hook_uninstall_removes_aadc_hook ... ok
+test tests::test_is_corner_negative ... ok
+test tests::test_is_corner_rounded ... ok
+test tests::test_is_corner_light ... ok
+test tests::test_is_horizontal_fill_ascii ... ok
+test tests::test_is_horizontal_fill_double ... ok
+test tests::test_is_horizontal_fill_heavy ... ok
+test tests::test_is_horizontal_fill_light ... ok
+test tests::test_is_horizontal_fill_negative ... ok
+test tests::test_is_junction_double ... ok
+test tests::test_is_junction_light ... ok
+test tests::test_is_junction_mixed ... ok
+test tests::test_is_junction_negative ... ok
+test tests::test_is_vertical_border_ascii ... ok
+test tests::test_is_vertical_border_double ... ok
+test tests::test_is_vertical_border_heavy ... ok
+test tests::test_is_vertical_border_light ... ok
+test tests::test_is_vertical_border_negative ... ok
+test tests::test_json_output_dry_run_status ... ok
+test tests::test_json_output_structure ... ok
+test tests::test_line_in_ranges ... ok
+test tests::test_load_config_file_empty ... ok
+test tests::test_load_config_file_invalid_preset ... ok
+test tests::test_load_config_file_basic ... ok
+test tests::test_merge_adjacent_ranges ... ok
+test tests::test_load_config_file_invalid_toml ... ok
+test tests::test_load_config_file_all_options ... ok
+test tests::test_parse_multiple_ranges ... ok
+test tests::test_load_config_file_unknown_keys_tolerated ... ok
+test tests::test_parse_open_ended_end ... ok
+test tests::test_parse_open_ended_start ... ok
+test tests::test_load_config_file_with_preset ... ok
+test tests::test_parse_simple_range ... ok
+test tests::test_merge_overlapping_ranges ... ok
+test tests::test_parse_single_line ... ok
+test tests::test_quick_scan_plain_text ... ok
+test tests::test_quick_scan_with_diagram_lines ... ok
+test tests::test_quick_scan_threshold_boundary ... ok
+test tests::test_revision_apply_add_border_ascii ... ok
+test tests::test_revision_apply_add_border_no_extra_padding ... ok
+test tests::test_revision_apply_add_border_unicode ... ok
+test tests::test_revision_apply_add_corner ... ok
+test tests::test_revision_apply_pad_ascii ... ok
+test tests::test_revision_apply_pad_corner ... ok
+test tests::test_revision_apply_pad_preserves_other_lines ... ok
+test tests::test_revision_apply_pad_unicode ... ok
+test tests::test_revision_score_add_border_base ... ok
+test tests::test_revision_score_add_border_strong_line ... ok
+test tests::test_revision_score_pad_large_adjustment ... ok
+test tests::test_revision_score_pad_small_adjustment ... ok
+test tests::test_revision_score_pad_strong_line_bonus ... ok
+test tests::test_revision_score_with_block_offset ... ok
+test tests::test_validate_args_in_place_requires_file ... ok
+test tests::test_validate_args_max_iters_zero ... ok
+test tests::test_validate_args_min_score_bounds ... ok
+test tests::test_validate_args_recursive_requires_path ... ok
+test tests::test_validate_args_tab_width_bounds ... ok
+test tests::test_visual_width_ascii ... ok
+test tests::test_visual_width_box_and_cjk ... ok
+test tests::test_visual_width_box_chars ... ok
+test tests::test_visual_width_cjk ... ok
+test tests::test_visual_width_empty ... ok
+test tests::test_visual_width_mixed_ascii_cjk ... ok
+
+test result: ok. 208 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/integration.rs (target/debug/deps/integration-37991423956330cd)
+
+running 27 tests
+test test_e2e_exit_code_invalid_tab_width_too_large ... ok
+test test_e2e_basic_ascii_correction ... ok
+test test_e2e_cjk_content ... ok
+test test_e2e_diff_mode_with_changes ... ok
+test test_e2e_binary_file_detection ... ok
+test test_e2e_diff_mode_no_changes ... ok
+test test_e2e_exit_code_invalid_tab_width_zero ... ok
+test test_e2e_exit_code_dry_run_would_change ... ok
+test test_e2e_exit_code_dry_run_no_changes ... ok
+test test_e2e_exit_code_nonexistent_file ... ok
+test test_e2e_empty_input ... ok
+test test_e2e_exit_code_success ... ok
+test test_e2e_exit_code_invalid_utf8 ... ok
+test test_e2e_max_iterations ... ok
+test test_e2e_multiple_diagrams ... ok
+test test_e2e_nested_boxes ... ok
+test test_e2e_high_max_iters_warning ... ok
+test test_e2e_no_diagrams ... ok
+test test_e2e_whitespace_only ... ok
+test test_e2e_multiple_files ... ok
+test test_e2e_verbose_mode ... ok
+test test_e2e_recursive_in_place ... ok
+test test_e2e_min_score_threshold ... ok
+test test_e2e_unicode_box_correction ... ok
+test test_e2e_process_all_flag ... ok
+test test_e2e_recursive_respects_gitignore ... ok
+test test_e2e_valid_tab_width_edge_cases ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+[23:01:38] [PASS] Cargo tests: 27 passed (0s)
+[23:01:38] [SUITE] Running: e2e_basic_cli
 
 --- Suite: e2e_basic_cli ---
 Building aadc...
@@ -75,8 +415,8 @@ Building aadc...
 SUMMARY: [0;32m18 passed[0m, [0;31m0 failed[0m
 ============================================
 
-[05:12:42] [PASS] Suite e2e_basic_cli: 18 passed, 0 failed (0s)
-[05:12:42] [SUITE] Running: e2e_cli_options
+[23:01:38] [PASS] Suite e2e_basic_cli: 18 passed, 0 failed (0s)
+[23:01:38] [SUITE] Running: e2e_cli_options
 
 --- Suite: e2e_cli_options ---
 Building aadc...
@@ -131,8 +471,8 @@ Building aadc...
 SUMMARY: [0;32m17 passed[0m, [0;31m0 failed[0m
 ============================================
 
-[05:12:42] [PASS] Suite e2e_cli_options: 17 passed, 0 failed (0s)
-[05:12:42] [SUITE] Running: e2e_fixtures
+[23:01:39] [PASS] Suite e2e_cli_options: 17 passed, 0 failed (1s)
+[23:01:39] [SUITE] Running: e2e_fixtures
 
 --- Suite: e2e_fixtures ---
 Building aadc...
@@ -193,18 +533,18 @@ Building aadc...
 SUMMARY: [0;32m20 passed[0m, [0;31m0 failed[0m
 ============================================
 
-[05:12:42] [PASS] Suite e2e_fixtures: 20 passed, 0 failed (0s)
-[05:12:42] [RESULT] E2E Test Results Summary
-[05:12:42] [RESULT]   Total Passed:  55
-[05:12:42] [RESULT]   Total Failed:  0
-[05:12:42] [RESULT]   Total Skipped: 0
+[23:01:39] [PASS] Suite e2e_fixtures: 20 passed, 0 failed (0s)
+[23:01:39] [RESULT] E2E Test Results Summary
+[23:01:39] [RESULT]   Total Passed:  82
+[23:01:39] [RESULT]   Total Failed:  0
+[23:01:39] [RESULT]   Total Skipped: 0
 
 ================================================================================
 FINAL SUMMARY
 ================================================================================
-Total Passed:  55
+Total Passed:  82
 Total Failed:  0
 Total Skipped: 0
-Overall Exit:  1
+Overall Exit:  0
 ================================================================================
-[05:12:42] [RESULT] Some tests failed - see /dp/aadc/tests/e2e_results.log for details
+[23:01:39] [RESULT] All tests passed!
