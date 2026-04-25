@@ -24,3 +24,6 @@ a.out
 
 # Rust build directory (when building locally)
 /target/
+
+# macOS Finder metadata
+.DS_Store
