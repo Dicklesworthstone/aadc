@@ -1432,6 +1432,16 @@ fn analyze_line(line: &str) -> AnalyzedLine {
     }
 }
 
+/// Check whether a line's first non-blank character is a border glyph
+/// (vertical border, corner, or junction).
+///
+/// Diagram rows open with their left border; lines that merely *contain*
+/// box characters (`--flag`, `a | b`, `- list item`) do not. This is the
+/// precondition for ever adding a right-side border to a line.
+fn opens_with_border(line: &str) -> bool {
+    line.trim_start().chars().next().is_some_and(is_border_char)
+}
+
 /// Detect a right-side border in a line
 fn detect_suffix_border(line: &str) -> Option<SuffixBorder> {
     let trimmed = line.trim_end();
@@ -1452,6 +1462,275 @@ fn detect_suffix_border(line: &str) -> Option<SuffixBorder> {
     } else {
         None
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Markdown Structure Awareness
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// aadc is mostly run on Markdown, and Markdown is full of things that *look*
+// boxy to `classify_line` but are not diagrams:
+//
+// - GFM tables: every row starts and ends with `|`, so it classifies as Strong.
+// - Fenced code with a language tag: `--flags`, `a | b` pipes, `-----`
+//   comment rulers, Mermaid `-->|label|` edges, YAML `---` documents.
+// - Front matter: `---` delimiters are 100% horizontal fill.
+//
+// Correcting any of these corrupts the document (padding a table's delimiter
+// row with spaces, appending `|` to a shell command). This pass identifies such
+// lines *structurally*, following the CommonMark/GFM rules for the constructs,
+// so that block detection can treat them as hard boundaries instead of relying
+// on the box-character heuristics alone.
+
+/// Why a line is excluded from diagram detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Protection {
+    /// Ordinary line; subject to normal diagram heuristics.
+    None,
+    /// Inside (or delimiting) a fenced code block whose info string names a
+    /// language rather than plain text / a diagram.
+    CodeFence,
+    /// A GFM table row (header, delimiter, or body).
+    Table,
+    /// YAML (`---`) or TOML (`+++`) front matter at the top of the document.
+    FrontMatter,
+}
+
+impl Protection {
+    fn is_protected(self) -> bool {
+        self != Self::None
+    }
+}
+
+/// Fence info-string tags that denote plain text or an ASCII/Unicode diagram.
+///
+/// Content in fences tagged with one of these (or with no tag at all) is run
+/// through the normal diagram heuristics. Any other tag is assumed to name a
+/// language (`bash`, `rust`, `json`, `mermaid`, ...) whose content must never be
+/// touched, regardless of how boxy it looks.
+const DIAGRAM_FENCE_TAGS: &[&str] = &[
+    "text",
+    "txt",
+    "plain",
+    "plaintext",
+    "ascii",
+    "asciiart",
+    "ascii-art",
+    "asciidiagram",
+    "diagram",
+    "art",
+    "box",
+    "none",
+    "nohighlight",
+    "no-highlight",
+    "raw",
+];
+
+/// A fenced code block opener (CommonMark §4.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FenceOpener {
+    /// The fence character (`` ` `` or `~`).
+    marker: char,
+    /// Length of the opening fence run (>= 3). A closer must be at least this long.
+    len: usize,
+    /// Whether the fenced content may hold diagrams (untagged or diagram-tagged).
+    diagram_ok: bool,
+}
+
+/// Parse a line as a fenced code block opener.
+///
+/// Leading whitespace is ignored so fences nested inside list items are still
+/// recognised. For backtick fences the info string may not contain a backtick
+/// (that would be inline code, not a fence).
+fn parse_fence_opener(line: &str) -> Option<FenceOpener> {
+    let rest = line.trim_start();
+    let marker = rest.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let len = rest.chars().take_while(|&c| c == marker).count();
+    if len < 3 {
+        return None;
+    }
+    let info = rest[len..].trim();
+    if marker == '`' && info.contains('`') {
+        return None;
+    }
+    // The language is the first word of the info string, e.g. "rust" in
+    // "rust,ignore" or "bash title=x". Comparison is case-insensitive.
+    let tag = info
+        .split(|c: char| c.is_whitespace() || c == ',' || c == '{' || c == '}')
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let diagram_ok = tag.is_empty() || DIAGRAM_FENCE_TAGS.contains(&tag.as_str());
+    Some(FenceOpener {
+        marker,
+        len,
+        diagram_ok,
+    })
+}
+
+/// Check whether a line closes the given fence: same marker, a run at least as
+/// long as the opener, and nothing but whitespace after it.
+fn is_fence_closer(line: &str, opener: FenceOpener) -> bool {
+    let rest = line.trim();
+    let run = rest.chars().take_while(|&c| c == opener.marker).count();
+    run >= opener.len && rest.chars().count() == run
+}
+
+/// Split a line into GFM table cells, or `None` if it cannot be a table row.
+///
+/// Cells are separated by unescaped ASCII `|` (a `|` preceded by an odd number
+/// of backslashes is literal). The leading and trailing pipes are optional and
+/// do not produce cells. A line with no unescaped pipe is not a row.
+fn split_table_cells(line: &str) -> Option<Vec<&str>> {
+    let trimmed = line.trim();
+    let mut cells = Vec::new();
+    let mut cell_start = 0;
+    let mut backslashes = 0usize;
+    let mut saw_pipe = false;
+
+    for (idx, c) in trimmed.char_indices() {
+        match c {
+            '\\' => backslashes += 1,
+            '|' if backslashes % 2 == 0 => {
+                saw_pipe = true;
+                cells.push(&trimmed[cell_start..idx]);
+                cell_start = idx + 1;
+                backslashes = 0;
+            }
+            _ => backslashes = 0,
+        }
+    }
+    if !saw_pipe {
+        return None;
+    }
+    // `cell_start == len` means the last character was an unescaped pipe.
+    let trailing_pipe = cell_start == trimmed.len();
+    if !trailing_pipe {
+        cells.push(&trimmed[cell_start..]);
+    }
+    // A leading pipe is always unescaped; the empty fragment before it is not
+    // a cell.
+    if trimmed.starts_with('|') {
+        cells.remove(0);
+    }
+    Some(cells)
+}
+
+/// Check whether a cell is a GFM delimiter-row cell: hyphens with an optional
+/// leading and/or trailing colon.
+fn is_table_delimiter_cell(cell: &str) -> bool {
+    let inner = cell.trim().trim_start_matches(':').trim_end_matches(':');
+    !inner.is_empty() && inner.chars().all(|c| c == '-')
+}
+
+/// Check whether a line is a box's horizontal edge: it opens with a corner or
+/// junction and closes with a border glyph (`+-----+`, `┌──┬──┐`, `├──┼──┤`).
+fn is_box_edge(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed
+        .chars()
+        .next()
+        .is_some_and(|c| is_corner(c) || is_junction(c))
+        && trimmed.chars().next_back().is_some_and(is_border_char)
+}
+
+/// If `lines[i]` is a GFM table header row and `lines[i + 1]` its delimiter
+/// row, return the number of lines the table spans (header, delimiter, and all
+/// body rows), otherwise `None`.
+///
+/// Per the GFM spec the header must contain a pipe and have exactly as many
+/// cells as the delimiter row. The table continues over the following
+/// non-blank lines; we additionally require body rows to contain a pipe, so
+/// that a diagram butting directly against a table is not swallowed by it.
+///
+/// A header row sitting directly under a box edge (`+---+---+` / `| a | b |` /
+/// `|---|---|`) is an ASCII grid drawn inside a box, not a GFM table, and stays
+/// eligible for correction.
+fn table_extent(lines: &[String], i: usize) -> Option<usize> {
+    let header = split_table_cells(&lines[i])?;
+    let delimiter = split_table_cells(lines.get(i + 1)?)?;
+    if header.is_empty()
+        || header.len() != delimiter.len()
+        || !delimiter.iter().all(|c| is_table_delimiter_cell(c))
+        || (i > 0 && is_box_edge(&lines[i - 1]))
+    {
+        return None;
+    }
+
+    let mut len = 2;
+    while let Some(row) = lines.get(i + len) {
+        if row.trim().is_empty() || split_table_cells(row).is_none() {
+            break;
+        }
+        len += 1;
+    }
+    Some(len)
+}
+
+/// If the document opens with a front-matter block, return its length in
+/// lines (including both delimiters). YAML front matter is delimited by `---`
+/// (closed by `---` or `...`); TOML front matter by `+++`.
+fn front_matter_extent(lines: &[String]) -> Option<usize> {
+    let opener = lines.first()?.trim_end();
+    let closers: &[&str] = match opener {
+        "---" => &["---", "..."],
+        "+++" => &["+++"],
+        _ => return None,
+    };
+    lines
+        .iter()
+        .skip(1)
+        .position(|l| closers.contains(&l.trim_end()))
+        .map(|pos| pos + 2)
+}
+
+/// Compute, for every line, whether Markdown structure excludes it from
+/// diagram detection.
+///
+/// This is a single linear scan that tracks fenced-code state (fences are not
+/// parsed inside other fences, and tables/front matter are not parsed inside
+/// fences).
+fn markdown_protection(lines: &[String]) -> Vec<Protection> {
+    let mut protection = vec![Protection::None; lines.len()];
+
+    let mut i = front_matter_extent(lines).unwrap_or(0);
+    protection[..i].fill(Protection::FrontMatter);
+
+    while i < lines.len() {
+        if let Some(opener) = parse_fence_opener(&lines[i]) {
+            let mark = if opener.diagram_ok {
+                Protection::None
+            } else {
+                Protection::CodeFence
+            };
+            // Fence markers themselves are never diagram content (`~~~` would
+            // otherwise classify as a Strong horizontal run).
+            protection[i] = Protection::CodeFence;
+            i += 1;
+            while i < lines.len() {
+                let closes = is_fence_closer(&lines[i], opener);
+                protection[i] = if closes { Protection::CodeFence } else { mark };
+                i += 1;
+                if closes {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if let Some(len) = table_extent(lines, i) {
+            protection[i..i + len].fill(Protection::Table);
+            i += len;
+            continue;
+        }
+
+        i += 1;
+    }
+
+    protection
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1488,14 +1767,20 @@ struct DiagramBlock {
 /// Scans the input for consecutive lines containing box-drawing characters
 /// and groups them into blocks. Uses lookahead to merge blocks separated
 /// by single blank lines.
+///
+/// Lines that Markdown structure identifies as non-diagram content (GFM
+/// tables, language-tagged code fences, front matter; see
+/// [`markdown_protection`]) are hard block boundaries: they never start,
+/// extend, or bridge a block, so no revision can ever be generated for them.
 fn find_diagram_blocks(lines: &[String], all_blocks: bool) -> Vec<DiagramBlock> {
+    let protection = markdown_protection(lines);
     let mut blocks = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
-        // Skip blank/non-boxy lines
+        // Skip blank/non-boxy/protected lines
         let kind = classify_line(&lines[i]);
-        if !kind.is_boxy() {
+        if protection[i].is_protected() || !kind.is_boxy() {
             i += 1;
             continue;
         }
@@ -1509,6 +1794,9 @@ fn find_diagram_blocks(lines: &[String], all_blocks: bool) -> Vec<DiagramBlock> 
 
         // Extend block
         while end < lines.len() {
+            if protection[end].is_protected() {
+                break;
+            }
             let next_kind = classify_line(&lines[end]);
 
             match next_kind {
@@ -1531,12 +1819,11 @@ fn find_diagram_blocks(lines: &[String], all_blocks: bool) -> Vec<DiagramBlock> 
                     end += 1;
                 }
                 LineKind::None => {
-                    // Check if next non-blank is boxy
-                    let lookahead = lines
-                        .iter()
-                        .skip(end)
-                        .take(3)
-                        .any(|l| classify_line(l).is_boxy());
+                    // Check if next non-blank is boxy (without looking across a
+                    // protected line, which would end the block anyway)
+                    let lookahead = (end..lines.len().min(end + 3))
+                        .take_while(|&j| !protection[j].is_protected())
+                        .any(|j| classify_line(&lines[j]).is_boxy());
                     if lookahead && blank_gap == 0 {
                         end += 1;
                     } else {
@@ -1771,8 +2058,11 @@ fn correct_block(
                         target_column: target,
                     });
                 }
-            } else if analyzed_line.kind.is_boxy() {
-                // Consider adding a border
+            } else if analyzed_line.kind.is_boxy() && opens_with_border(block_lines[i]) {
+                // Consider adding a border. Only lines that already open with a
+                // border glyph are candidates: we complete a box's missing right
+                // side, we never introduce a border into a line that has none
+                // (a `--flag` in a shell snippet, a prose line with a `|`).
                 revisions.push(Revision::AddSuffixBorder {
                     line_idx: global_idx,
                     border_char,
@@ -4669,6 +4959,332 @@ mod tests {
     }
 
     // =========================================================================
+    // Markdown structure awareness tests (GitHub issue #1)
+    // =========================================================================
+
+    fn to_lines(text: &str) -> Vec<String> {
+        text.lines().map(String::from).collect()
+    }
+
+    #[test]
+    fn test_parse_fence_opener_untagged_is_diagram_ok() {
+        let opener = parse_fence_opener("```").expect("``` is a fence");
+        assert_eq!(opener.marker, '`');
+        assert_eq!(opener.len, 3);
+        assert!(opener.diagram_ok);
+    }
+
+    #[test]
+    fn test_parse_fence_opener_diagram_tags() {
+        for tag in ["text", "TEXT", "txt", "ascii", "diagram", "plain", "none"] {
+            let opener = parse_fence_opener(&format!("```{tag}")).expect("fence");
+            assert!(opener.diagram_ok, "tag {tag:?} should allow diagrams");
+        }
+    }
+
+    #[test]
+    fn test_parse_fence_opener_language_tags() {
+        for info in [
+            "bash",
+            "sh",
+            "rust",
+            "python",
+            "json",
+            "yaml",
+            "mermaid",
+            "rust,ignore",
+            "bash title=\"x\"",
+            "{r}",
+        ] {
+            let opener = parse_fence_opener(&format!("```{info}")).expect("fence");
+            assert!(!opener.diagram_ok, "info {info:?} should be protected");
+        }
+    }
+
+    #[test]
+    fn test_parse_fence_opener_tilde_and_indent() {
+        let opener = parse_fence_opener("   ~~~~ bash").expect("fence");
+        assert_eq!(opener.marker, '~');
+        assert_eq!(opener.len, 4);
+        assert!(!opener.diagram_ok);
+    }
+
+    #[test]
+    fn test_parse_fence_opener_rejects_non_fences() {
+        assert!(parse_fence_opener("``").is_none());
+        assert!(parse_fence_opener("`code`").is_none());
+        assert!(parse_fence_opener("``` with ` backtick").is_none());
+        assert!(parse_fence_opener("| a | b |").is_none());
+        assert!(parse_fence_opener("").is_none());
+    }
+
+    #[test]
+    fn test_is_fence_closer_rules() {
+        let opener = parse_fence_opener("````").unwrap();
+        assert!(is_fence_closer("````", opener));
+        assert!(is_fence_closer("  `````  ", opener), "longer run closes");
+        assert!(
+            !is_fence_closer("```", opener),
+            "shorter run does not close"
+        );
+        assert!(!is_fence_closer("~~~~", opener), "different marker");
+        assert!(!is_fence_closer("```` rust", opener), "closer has no info");
+    }
+
+    #[test]
+    fn test_split_table_cells() {
+        assert_eq!(split_table_cells("| a | b |").unwrap(), vec![" a ", " b "]);
+        assert_eq!(split_table_cells("a | b").unwrap(), vec!["a ", " b"]);
+        assert_eq!(split_table_cells("| a |").unwrap(), vec![" a "]);
+        assert_eq!(
+            split_table_cells(r"| a \| b | c |").unwrap(),
+            vec![r" a \| b ", " c "]
+        );
+        assert!(split_table_cells("no pipes here").is_none());
+        assert!(split_table_cells("").is_none());
+        assert!(split_table_cells("|").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_is_table_delimiter_cell() {
+        for cell in ["---", " - ", ":---", "---:", ":-:", "------ "] {
+            assert!(is_table_delimiter_cell(cell), "{cell:?}");
+        }
+        for cell in ["", " ", "--x", ":", "===", "- -"] {
+            assert!(!is_table_delimiter_cell(cell), "{cell:?}");
+        }
+    }
+
+    #[test]
+    fn test_table_extent_basic() {
+        let lines =
+            to_lines("| Mode | Flag |\n|------|------|\n| a | b |\n| c | d |\n\n| not | a table |");
+        assert_eq!(table_extent(&lines, 0), Some(4));
+        assert_eq!(table_extent(&lines, 5), None, "no delimiter row");
+    }
+
+    #[test]
+    fn test_table_extent_requires_matching_cell_count() {
+        let lines = to_lines("| a | b |\n|---|");
+        assert_eq!(table_extent(&lines, 0), None);
+    }
+
+    #[test]
+    fn test_is_box_edge() {
+        assert!(is_box_edge("+-----+-----+"));
+        assert!(is_box_edge("  ┌──┬──┐"));
+        assert!(is_box_edge("├──┼──┤"));
+        assert!(!is_box_edge("+ bullet item"), "list bullet is not an edge");
+        assert!(!is_box_edge("---"));
+        assert!(!is_box_edge("| a | b |"));
+        assert!(!is_box_edge(""));
+    }
+
+    #[test]
+    fn test_table_extent_ascii_grid_inside_box_is_not_a_table() {
+        let lines =
+            to_lines("+-----+-----+\n| a   | b|\n|-----|-----|\n| c   | d   |\n+-----+-----+");
+        assert_eq!(table_extent(&lines, 1), None);
+        let blocks = find_diagram_blocks(&lines, false);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!((blocks[0].start, blocks[0].end), (0, 5));
+    }
+
+    #[test]
+    fn test_table_extent_stops_at_pipe_less_line() {
+        let lines = to_lines("| a |\n|---|\n| b |\n+---+\n| x |");
+        assert_eq!(table_extent(&lines, 0), Some(3));
+    }
+
+    #[test]
+    fn test_front_matter_extent() {
+        assert_eq!(
+            front_matter_extent(&to_lines("---\ntitle: x\n---\nbody")),
+            Some(3)
+        );
+        assert_eq!(
+            front_matter_extent(&to_lines("---\ntitle: x\n...\n")),
+            Some(3)
+        );
+        assert_eq!(front_matter_extent(&to_lines("+++\nx = 1\n+++")), Some(3));
+        assert_eq!(front_matter_extent(&to_lines("---\nunclosed")), None);
+        assert_eq!(front_matter_extent(&to_lines("body\n---\n---")), None);
+        assert_eq!(front_matter_extent(&[]), None);
+    }
+
+    #[test]
+    fn test_markdown_protection_table() {
+        let lines = to_lines(
+            "# Doc\n\n| Mode | Flag |\n|------|------|\n| **x** | — |\n\n+---+\n| a |\n+---+",
+        );
+        let p = markdown_protection(&lines);
+        assert_eq!(p[0], Protection::None);
+        assert_eq!(&p[2..5], &[Protection::Table; 3]);
+        assert_eq!(&p[6..9], &[Protection::None; 3], "diagram after table");
+    }
+
+    #[test]
+    fn test_markdown_protection_tagged_fence() {
+        let lines = to_lines("```bash\nx --dry-run\ncat a | b\n```\n+---+\n| a |\n+---+");
+        let p = markdown_protection(&lines);
+        assert_eq!(&p[0..4], &[Protection::CodeFence; 4]);
+        assert_eq!(&p[4..7], &[Protection::None; 3]);
+    }
+
+    #[test]
+    fn test_markdown_protection_untagged_fence_content_is_open() {
+        let lines = to_lines("```\n+---+\n| a |\n+---+\n```\n```text\n| b |\n```");
+        let p = markdown_protection(&lines);
+        assert_eq!(p[0], Protection::CodeFence, "marker line");
+        assert_eq!(&p[1..4], &[Protection::None; 3]);
+        assert_eq!(p[4], Protection::CodeFence, "marker line");
+        assert_eq!(p[6], Protection::None, "```text content");
+    }
+
+    #[test]
+    fn test_markdown_protection_no_tables_inside_fences() {
+        let lines = to_lines("```\n| a | b |\n|---|---|\n```");
+        let p = markdown_protection(&lines);
+        assert_eq!(&p[1..3], &[Protection::None; 2]);
+    }
+
+    #[test]
+    fn test_markdown_protection_unclosed_fence_runs_to_end() {
+        let lines = to_lines("```rust\n| a |\n| b |");
+        let p = markdown_protection(&lines);
+        assert_eq!(p, vec![Protection::CodeFence; 3]);
+    }
+
+    #[test]
+    fn test_markdown_protection_front_matter() {
+        let lines = to_lines("---\ntitle: a | b\n---\n\n+---+\n| a |\n+---+");
+        let p = markdown_protection(&lines);
+        assert_eq!(&p[0..3], &[Protection::FrontMatter; 3]);
+        assert_eq!(&p[4..7], &[Protection::None; 3]);
+    }
+
+    #[test]
+    fn test_opens_with_border() {
+        assert!(opens_with_border("| a"));
+        assert!(opens_with_border("  │ a"));
+        assert!(opens_with_border("+---"));
+        assert!(opens_with_border("├──"));
+        assert!(!opens_with_border("x --dry-run"));
+        assert!(!opens_with_border("- item | pipe"));
+        assert!(!opens_with_border("---"));
+        assert!(!opens_with_border(""));
+    }
+
+    #[test]
+    fn test_find_diagram_blocks_excludes_gfm_table() {
+        let lines = to_lines("| Mode | Flag |\n|------|------|\n| a | b |\n| c | d |");
+        assert!(find_diagram_blocks(&lines, false).is_empty());
+        assert!(find_diagram_blocks(&lines, true).is_empty(), "--all too");
+    }
+
+    #[test]
+    fn test_find_diagram_blocks_table_is_hard_boundary() {
+        // A fence line bridges into a table via lookahead in the old code;
+        // now the table is a boundary and the shell block stays a separate,
+        // low-confidence (dropped) block.
+        let lines = to_lines(
+            "```bash\nx 'DEL 3' --dry-run\n```\n| Command | Description |\n|---------|-------------|\n| a | b |",
+        );
+        assert!(find_diagram_blocks(&lines, false).is_empty());
+    }
+
+    #[test]
+    fn test_find_diagram_blocks_two_diagrams_split_by_table() {
+        let lines = to_lines(
+            "+---+\n| a|\n+---+\n\n| h | i |\n|---|---|\n| x | y |\n+-----+\n| bb  |\n+-----+",
+        );
+        let blocks = find_diagram_blocks(&lines, false);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!((blocks[0].start, blocks[0].end), (0, 3));
+        assert_eq!((blocks[1].start, blocks[1].end), (7, 10));
+    }
+
+    #[test]
+    fn test_correction_gfm_table_untouched() {
+        let console = Console::new();
+        let config = make_test_config();
+        let styles = make_test_styles();
+        let input = to_lines(
+            "# Example doc\n\n**Output modes**:\n\n| Mode | Flag | Description |\n|------|------|-------------|\n| **Compact** (default) | — | `OK path#hash edits=N` |\n| **Verbose** | `--verbose` | Full file dump |",
+        );
+        let (out, stats) = correct_lines(input.clone(), &config, &console, &styles);
+        assert_eq!(out, input);
+        assert_eq!(stats.total_revisions, 0);
+    }
+
+    #[test]
+    fn test_correction_tagged_fence_never_gets_border_inserted() {
+        let console = Console::new();
+        let config = make_test_config();
+        let styles = make_test_styles();
+        let input = to_lines(
+            "```bash\nhashline patch src/auth.js 'DEL 3' --dry-run\n```\n| Command | Description |\n|---------|-------------|\n| `hashline patch FILE OPS --dry-run` | Preview the patch without writing anything to disk |",
+        );
+        let (out, _) = correct_lines(input.clone(), &config, &console, &styles);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_correction_never_inserts_border_into_borderless_line() {
+        // Even with no Markdown structure to protect it, a line that does not
+        // open with a border glyph never has one appended, however the block
+        // around it scores.
+        let console = Console::new();
+        let mut config = make_test_config();
+        config.all_blocks = true;
+        config.min_score = 0.0;
+        let styles = make_test_styles();
+        let input = to_lines("run --dry-run --strict\n+----------+\n| content  |\n+----------+");
+        let (out, _) = correct_lines(input.clone(), &config, &console, &styles);
+        assert_eq!(out[0], "run --dry-run --strict");
+    }
+
+    #[test]
+    fn test_correction_still_completes_opened_box_row() {
+        // Positive control for the invariant: a row that opens with a border
+        // and lacks its closing one still gets it.
+        let console = Console::new();
+        let config = make_test_config();
+        let styles = make_test_styles();
+        let input = to_lines("+-------+\n| ab\n| abcde |\n+-------+");
+        let (out, _) = correct_lines(input, &config, &console, &styles);
+        assert_eq!(out[1], "| ab    |");
+    }
+
+    #[test]
+    fn test_correction_untagged_fence_diagram_still_corrected() {
+        let console = Console::new();
+        let config = make_test_config();
+        let styles = make_test_styles();
+        let input = to_lines(
+            "Intro\n\n```\n┌────────────────┐\n│ API Gateway|\n│ Authentication │\n│ Rate Limiting|\n└────────────────┘\n```\n\n```text\n+--------+\n| Short|\n| Longer |\n+--------+\n```",
+        );
+        let (out, stats) = correct_lines(input, &config, &console, &styles);
+        assert_eq!(stats.blocks_found, 2);
+        assert_eq!(out[4], "│ API Gateway    |");
+        assert_eq!(out[6], "│ Rate Limiting  |");
+        assert_eq!(out[12], "| Short  |");
+    }
+
+    #[test]
+    fn test_correction_mermaid_and_yaml_fences_untouched() {
+        let console = Console::new();
+        let mut config = make_test_config();
+        config.all_blocks = true;
+        let styles = make_test_styles();
+        let input = to_lines(
+            "```mermaid\ngraph LR\n  A -->|yes| B\n  B --> C\n```\n\n```yaml\n---\nkey: a | b\n---\n```\n\n- list item | with pipe\n- another `a | b`",
+        );
+        let (out, _) = correct_lines(input.clone(), &config, &console, &styles);
+        assert_eq!(out, input);
+    }
+
+    // =========================================================================
     // find_diagram_blocks() tests
     // =========================================================================
 
@@ -5148,7 +5764,9 @@ mod tests {
 
         // Create a temp dir with .git
         let temp = tempfile::tempdir().unwrap();
-        let git_dir = temp.path().join(".git");
+        // Canonicalize: on macOS `tempdir()` yields `/var/...` while `current_dir()`
+        // reports the resolved `/private/var/...`.
+        let git_dir = temp.path().canonicalize().unwrap().join(".git");
         fs::create_dir(&git_dir).unwrap();
 
         std::env::set_current_dir(temp.path()).unwrap();

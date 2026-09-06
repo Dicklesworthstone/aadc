@@ -709,3 +709,174 @@ fn test_e2e_binary_file_detection() {
 
     test_log!("END", "Test PASSED");
 }
+
+// ============================================================================
+// Markdown false-positive regressions (GitHub issue #1)
+// ============================================================================
+
+#[test]
+fn test_e2e_gfm_table_is_not_a_diagram() {
+    test_log!("START", "GFM table must not be padded (issue #1, repro 1)");
+
+    let input = "# Example doc
+
+**Output modes**:
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| **Compact** (default) | — | `OK path#hash edits=N` |
+| **Verbose** | `--verbose` | Full file dump |
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["-n", "-d"]);
+    assert_eq!(
+        code, 0,
+        "dry-run must report no changes, got diff:\n{stdout}"
+    );
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &[]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, input, "table must pass through byte-for-byte");
+
+    test_log!("END", "Test PASSED");
+}
+
+#[test]
+fn test_e2e_tagged_fence_never_gets_pipe_inserted() {
+    test_log!(
+        "START",
+        "```bash content must never be corrected (issue #1, repro 2)"
+    );
+
+    // A shell block directly followed by a table: the old block detector
+    // bridged the closing fence into the table and appended `|` to the
+    // command line.
+    let input = "# hashline
+
+```bash
+hashline patch src/auth.js 'DEL 3' --dry-run
+hashline patch src/auth.js 'DEL 3'
+```
+| Command | Description |
+|---------|-------------|
+| `hashline patch FILE OPS --dry-run` | Preview the patch without writing anything to disk |
+| `hashline patch FILE OPS` | Apply the patch |
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["-n", "-d"]);
+    assert_eq!(
+        code, 0,
+        "dry-run must report no changes, got diff:\n{stdout}"
+    );
+
+    // Even the most aggressive settings must not touch a bash fence.
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["--all", "-P", "relaxed"]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, input);
+
+    test_log!("END", "Test PASSED");
+}
+
+#[test]
+fn test_e2e_borderless_line_never_gains_border() {
+    test_log!(
+        "START",
+        "A line without a border glyph never has one inserted"
+    );
+
+    // No Markdown structure here at all; the invariant alone must hold.
+    let input = "run --dry-run --strict
++----------+
+| content  |
++----------+
+";
+
+    let (stdout, _stderr, _code) = run_aadc_stdin(input, &["--all", "-P", "relaxed"]);
+    assert!(
+        stdout.starts_with("run --dry-run --strict\n"),
+        "first line must be untouched, got:\n{stdout}"
+    );
+
+    test_log!("END", "Test PASSED");
+}
+
+#[test]
+fn test_e2e_untagged_fence_diagram_still_corrected() {
+    test_log!(
+        "START",
+        "Positive control: misaligned diagram in ``` fence is corrected"
+    );
+
+    let input = "Architecture:
+
+```
+┌────────────────┐
+│ API Gateway|
+│ Authentication │
+│ Rate Limiting|
+└────────────────┘
+```
+
+```text
++--------+
+| Short|
+| Longer |
++--------+
+```
+";
+    let expected = "Architecture:
+
+```
+┌────────────────┐
+│ API Gateway    |
+│ Authentication │
+│ Rate Limiting  |
+└────────────────┘
+```
+
+```text
++--------+
+| Short  |
+| Longer |
++--------+
+```
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &[]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, expected);
+
+    let (_stdout, _stderr, code) = run_aadc_stdin(input, &["-n"]);
+    assert_eq!(code, 3, "dry-run must report that changes would be made");
+
+    test_log!("END", "Test PASSED");
+}
+
+#[test]
+fn test_e2e_mermaid_front_matter_and_lists_untouched() {
+    test_log!(
+        "START",
+        "Mermaid fences, front matter, list items with pipes pass through"
+    );
+
+    let input = "---
+title: a | b
+tags: [x, y]
+---
+
+```mermaid
+graph LR
+  A -->|yes| B
+  B --> C
+```
+
+- list item | with pipe
+- another `a | b` item
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["--all", "-P", "relaxed"]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, input);
+
+    test_log!("END", "Test PASSED");
+}
