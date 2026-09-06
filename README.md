@@ -231,6 +231,25 @@ Unicode: │ ┃ ║ ╎ ╏ ┆ ┇ ┊ ┋
 Unicode: ┬ ┴ ├ ┤ ┼ ╦ ╩ ╠ ╣ ╬ ╤ ╧ ╟ ╢ ╫ ╪
 ```
 
+### What It Leaves Alone
+
+Markdown is full of things that look boxy but are not diagrams. aadc recognizes
+the following structurally (per the CommonMark/GFM rules) and never touches them,
+whatever the preset and even with `--all`:
+
+- **GFM tables** — a `|`-delimited header row followed by a `|---|---|` delimiter
+  row, and the body rows after it.
+- **Fenced code with a language tag** — ```` ```bash ````, ```` ```rust ````,
+  ```` ```json ````, ```` ```mermaid ````, … Content in untagged fences, or fences
+  tagged as plain text / diagrams (`text`, `txt`, `ascii`, `diagram`, `plain`, …),
+  is still corrected.
+- **Front matter** — YAML `---` / TOML `+++` blocks at the top of a file.
+
+Independently of Markdown, a closing border is only ever *added* to a line that
+already opens with one (`|`, a corner, or a junction). aadc completes a box's
+missing right side; it never introduces a `|` into a line that has no border, such
+as a `--flag` in a shell snippet or prose containing `a | b`.
+
 ---
 
 ## Installation
