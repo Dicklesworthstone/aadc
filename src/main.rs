@@ -65,6 +65,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exit Codes
@@ -1343,29 +1344,40 @@ struct SuffixBorder {
     is_closing: bool,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Display Width
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Widths come from the `unicode-width` crate (UAX #11 East_Asian_Width plus
+// the emoji/ligature rules), in its **non-CJK** interpretation:
+//
+// - Fullwidth / Wide characters (CJK ideographs, Hangul syllables, emoji with
+//   default emoji presentation, `▶\u{FE0F}`-style presentation sequences): 2.
+// - Combining marks, zero-width joiners and other default-ignorables: 0.
+// - Everything else, **including East_Asian_Width=Ambiguous glyphs**: 1.
+//
+// The Ambiguous class is the one that matters for diagrams. It contains the
+// box-drawing block (U+2500-U+257F), block elements (`█ ▀ ▄`), the geometric
+// shapes and arrows people put in diagrams (`▶ ◀ ▲ ▼ ● ■ ◆ ★ → ← ↔`), and
+// common typography (`— – … ’ “ ”`). A terminal renders them all either narrow
+// (the default in non-CJK locales) or all wide; the one thing that never happens
+// is box-drawing narrow and `▶` wide. Measuring them consistently as 1 keeps an
+// aligned `├───────▶│` row aligned. The previous hand-rolled table counted every
+// non-box-drawing character at or above U+1100 as 2, which is what made a
+// single `▶` shift a whole diagram (GitHub issue #2).
+//
+// Control characters are counted as 1 column, matching `UnicodeWidthStr`.
+
 /// Calculate the visual width of a single character in terminal columns.
 ///
-/// - ASCII characters: 1 column
-/// - Box drawing characters (U+2500-U+257F): 1 column
-/// - CJK/emoji (U+1100 and above, excluding box drawing): 2 columns
-/// - Other Unicode below U+1100: 1 column
+/// Used where columns must be accumulated character by character (tab
+/// expansion). For whole strings prefer [`visual_width`], which also knows
+/// about multi-character sequences (emoji ZWJ sequences, `\u{FE0F}`).
 fn char_width(c: char) -> usize {
-    // Box drawing characters are above U+1100 but should be 1 column wide,
-    // so check them first to avoid the wide character branch.
-    if c.is_ascii() || is_box_char(c) || c < '\u{1100}' {
-        1
-    } else {
-        // CJK characters, emoji, and other wide Unicode
-        2
-    }
+    UnicodeWidthChar::width(c).unwrap_or(1)
 }
 
 /// Calculate the visual width of a string in terminal columns.
-///
-/// Handles different character widths:
-/// - ASCII characters: 1 column each
-/// - CJK characters (Chinese, Japanese, Korean): 2 columns each
-/// - Emoji and other wide Unicode: 2 columns each
 ///
 /// # Examples
 ///
@@ -1373,11 +1385,12 @@ fn char_width(c: char) -> usize {
 /// visual_width("Hello")     == 5   // ASCII only
 /// visual_width("你好")      == 4   // CJK (2 chars × 2 columns)
 /// visual_width("Hello世界") == 9   // 5 ASCII + 2 CJK chars
+/// visual_width("├──▶│")     == 5   // box drawing and ▶ are all 1 column
 /// ```
 ///
 /// This is critical for correct padding calculations in diagrams.
 fn visual_width(s: &str) -> usize {
-    s.chars().map(char_width).sum()
+    UnicodeWidthStr::width(s)
 }
 
 /// Classify a single line
@@ -4772,6 +4785,109 @@ mod tests {
     fn test_visual_width_box_and_cjk() {
         // Box chars in CJK context
         assert_eq!(visual_width("│中│"), 4); // 1 + 2 + 1
+    }
+
+    /// East_Asian_Width=Ambiguous glyphs commonly used in diagrams must be
+    /// measured exactly like the (also Ambiguous) box-drawing characters:
+    /// one column each (GitHub issue #2).
+    #[test]
+    fn test_width_ambiguous_diagram_glyphs_are_one_column() {
+        let glyphs = [
+            ('▶', "BLACK RIGHT-POINTING TRIANGLE"),
+            ('◀', "BLACK LEFT-POINTING TRIANGLE"),
+            ('▲', "BLACK UP-POINTING TRIANGLE"),
+            ('▼', "BLACK DOWN-POINTING TRIANGLE"),
+            ('►', "BLACK RIGHT-POINTING POINTER"),
+            ('◄', "BLACK LEFT-POINTING POINTER"),
+            ('→', "RIGHTWARDS ARROW"),
+            ('←', "LEFTWARDS ARROW"),
+            ('↔', "LEFT RIGHT ARROW"),
+            ('↑', "UPWARDS ARROW"),
+            ('↓', "DOWNWARDS ARROW"),
+            ('●', "BLACK CIRCLE"),
+            ('○', "WHITE CIRCLE"),
+            ('■', "BLACK SQUARE"),
+            ('□', "WHITE SQUARE"),
+            ('◆', "BLACK DIAMOND"),
+            ('◇', "WHITE DIAMOND"),
+            ('★', "BLACK STAR"),
+            ('█', "FULL BLOCK"),
+            ('▀', "UPPER HALF BLOCK"),
+            ('—', "EM DASH"),
+            ('–', "EN DASH"),
+            ('…', "HORIZONTAL ELLIPSIS"),
+            ('’', "RIGHT SINGLE QUOTATION MARK"),
+            ('“', "LEFT DOUBLE QUOTATION MARK"),
+            ('│', "BOX DRAWINGS LIGHT VERTICAL"),
+            ('╔', "BOX DRAWINGS DOUBLE DOWN AND RIGHT"),
+        ];
+        for (glyph, name) in glyphs {
+            assert_eq!(
+                char_width(glyph),
+                1,
+                "{name} (U+{:04X}) char_width",
+                glyph as u32
+            );
+            assert_eq!(
+                visual_width(&glyph.to_string()),
+                1,
+                "{name} (U+{:04X}) visual_width",
+                glyph as u32
+            );
+        }
+        // The issue's junction row: box drawing and ▶ measure identically.
+        assert_eq!(visual_width("├───────▶│"), visual_width("├───────>│"));
+    }
+
+    #[test]
+    fn test_width_wide_and_zero_width() {
+        // Genuinely wide: CJK, Hangul, default-emoji-presentation emoji.
+        assert_eq!(visual_width("字"), 2);
+        assert_eq!(visual_width("한"), 2);
+        assert_eq!(visual_width("😀"), 2);
+        // ▶ with an explicit emoji presentation selector *is* rendered wide.
+        assert_eq!(visual_width("▶\u{FE0F}"), 2);
+        // Combining marks and zero-width joiners take no columns.
+        assert_eq!(visual_width("e\u{0301}"), 1);
+        assert_eq!(visual_width("\u{200D}"), 0);
+        assert_eq!(char_width('\u{0301}'), 0);
+        // Control characters count as one column, like `UnicodeWidthStr`.
+        assert_eq!(char_width('\u{1b}'), 1);
+    }
+
+    #[test]
+    fn test_correction_aligned_diagram_with_triangle_arrow_is_untouched() {
+        // Exact diagram from issue #2: every column lines up, so nothing may
+        // change even under the most permissive scoring.
+        let console = Console::new();
+        let mut config = make_test_config();
+        config.min_score = 0.0;
+        let styles = make_test_styles();
+        let input = to_lines(
+            "┌─────────────────────────────┐        ┌──────────────┐\n\
+             │ 3. hashline patch file      ├───────▶│ --dry-run    │\n\
+             │    (stdin for multi-op)     │        │ preview only │\n\
+             └──────────────┬──────────────┘        └──────────────┘",
+        );
+        let (out, stats) = correct_lines(input.clone(), &config, &console, &styles);
+        assert_eq!(out, input);
+        assert_eq!(stats.total_revisions, 0);
+    }
+
+    #[test]
+    fn test_correction_misaligned_row_with_triangle_arrow_is_fixed() {
+        // Positive control: the same diagram with one short row is padded by
+        // exactly the missing columns, ▶ counted as one.
+        let console = Console::new();
+        let config = make_test_config();
+        let styles = make_test_styles();
+        let input = to_lines(
+            "┌──────────┐     ┌──────────┐\n\
+             │ Client   ├────▶│ Server│\n\
+             └──────────┘     └──────────┘",
+        );
+        let (out, _) = correct_lines(input, &config, &console, &styles);
+        assert_eq!(out[1], "│ Client   ├────▶│ Server   │");
     }
 
     // =========================================================================

@@ -880,3 +880,55 @@ graph LR
 
     test_log!("END", "Test PASSED");
 }
+
+// ============================================================================
+// Ambiguous-width glyph regression (GitHub issue #2)
+// ============================================================================
+
+#[test]
+fn test_e2e_triangle_arrow_diagram_is_aligned_under_strict() {
+    test_log!(
+        "START",
+        "▶ (U+25B6) measures 1 column; aligned diagram passes -P strict"
+    );
+
+    let input = "┌─────────────────────────────┐        ┌──────────────┐
+│ 3. hashline patch file      ├───────▶│ --dry-run    │
+│    (stdin for multi-op)     │        │ preview only │
+└──────────────┬──────────────┘        └──────────────┘
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["-n", "-d", "-P", "strict"]);
+    assert_eq!(code, 0, "no changes expected, got diff:\n{stdout}");
+
+    // Same answer regardless of preset: the diagram is simply aligned.
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["--all", "-P", "relaxed"]);
+    assert_eq!(code, 0);
+    assert_eq!(stdout, input);
+
+    // Control from the issue: ASCII `>` in place of ▶ is (still) clean too.
+    let control = input.replace('▶', ">");
+    let (_stdout, _stderr, code) = run_aadc_stdin(&control, &["-n", "-P", "strict"]);
+    assert_eq!(code, 0);
+
+    test_log!("END", "Test PASSED");
+}
+
+#[test]
+fn test_e2e_arrow_glyphs_do_not_shift_alignment() {
+    test_log!(
+        "START",
+        "Aligned diagram with →, ▼, ●, — glyphs passes unchanged"
+    );
+
+    let input = "┌──────────┐     ┌──────────┐
+│ Client → ├────▶│ Server ● │
+│ retry —  │     │ queue ▼  │
+└──────────┘     └──────────┘
+";
+
+    let (stdout, _stderr, code) = run_aadc_stdin(input, &["-n", "-d"]);
+    assert_eq!(code, 0, "no changes expected, got diff:\n{stdout}");
+
+    test_log!("END", "Test PASSED");
+}

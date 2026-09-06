@@ -459,7 +459,12 @@ aadc --tab-width 8 diagram.txt  # For 8-space tabs
 
 **Cause:** CJK characters and emoji are double-width, but some terminals render them inconsistently.
 
-**Fix:** This is a terminal rendering issue, not aadc. The tool assumes standard Unicode width rules.
+**Fix:** This is a terminal rendering issue, not aadc. The tool measures columns with
+the standard Unicode width rules (UAX #11) in their non-CJK interpretation: CJK
+ideographs and emoji are 2 columns; box-drawing characters and other
+East-Asian-Ambiguous glyphs such as `▶ → ● —` are 1 column, so a `├───▶│` junction
+row measures the same as `├───>│`. If your terminal is configured to render
+ambiguous glyphs wide, box-drawing diagrams will look off there regardless of aadc.
 
 ### "In-place edit failed"
 
