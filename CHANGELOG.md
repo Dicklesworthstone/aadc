@@ -4,16 +4,114 @@ All notable changes to **aadc** (ASCII Art Diagram Corrector) are documented her
 
 Repository: <https://github.com/Dicklesworthstone/aadc>
 
-This project has not yet cut a formal release or tag. All entries below correspond
-to commits on the `main` branch. Rather than listing changes in raw diff order,
-sections are organized by capability area so readers can quickly find the history
-of any feature.
+**v0.1.1 (2026-09-07) is the first tagged release.** The `0.1.0` section below is
+the pre-tag history of `main` while `Cargo.toml` read `0.1.0`; it was never tagged
+or published. Rather than listing changes in raw diff order, sections are organized
+by capability area so readers can quickly find the history of any feature.
 
-Current version in `Cargo.toml`: **0.1.0**
+Current version in `Cargo.toml`: **0.1.1**
 
 ---
 
-## [Unreleased] -- v0.1.0-dev
+## [0.1.1] - 2026-09-07
+
+First tagged release. Two correctness fixes reported against the Markdown and
+Unicode handling, one config-validation fix, dependency refreshes, and the
+toolchain pin.
+
+### Bug Fixes
+
+- **GFM tables and tagged code fences are no longer treated as diagrams** --
+  block detection had no notion of Markdown structure: a table row (`| a | b |`)
+  classified as a Strong border line and a shell line such as `--dry-run` as a
+  Weak one, so the 3-line lookahead bridged a closing ``` fence into an adjacent
+  table and "corrected" both. A new `markdown_protection` pre-pass identifies
+  fenced code blocks (backtick or tilde, matching closer, unclosed runs to EOF),
+  GFM tables (header + `|:?-+:?|` delimiter row with matching cell counts,
+  escaped pipes honoured) and YAML/TOML front matter per the CommonMark/GFM
+  rules. Fences whose info string names a language (`bash`, `rust`, `json`,
+  `mermaid`, ...) protect their content; untagged fences and diagram-ish tags
+  (`text`, `ascii`, `diagram`, ...) keep the normal heuristics. Protected lines
+  are hard block boundaries: they never start, extend or bridge a block under
+  any preset or `--all`. Fixes [#1](https://github.com/Dicklesworthstone/aadc/issues/1).
+  ([`19ec9c6`](https://github.com/Dicklesworthstone/aadc/commit/19ec9c6e94d5464192fec46a9f35784c83ab6034) -- 2026-09-06)
+- **Right-border invariant** -- `correct_block` only ever adds a right border to
+  a line that already opens with a border glyph (`|`, corner, junction). aadc
+  completes a box's missing right side; it never introduces a border into a
+  line that has none (`--flag`, prose containing `a | b`, list items).
+  ([`19ec9c6`](https://github.com/Dicklesworthstone/aadc/commit/19ec9c6e94d5464192fec46a9f35784c83ab6034) -- 2026-09-06)
+- **East-Asian-Ambiguous glyphs measure as 1 column** -- `char_width` was a
+  hand-rolled table that counted every non-ASCII, non-box-drawing character
+  above U+1100 as 2 columns, so `▶`, `→`, `●`, `█`, `—` and the rest of the
+  Ambiguous class were double-width while the (equally Ambiguous) box-drawing
+  glyphs next to them were single-width. A perfectly aligned `├───▶│` row
+  measured one column too long, became the target width, and every other row
+  gained a stray space before its right border. Width now comes from the
+  `unicode-width` crate in its non-CJK interpretation (UAX #11 default):
+  Wide/Fullwidth are 2, combining marks and default-ignorables are 0,
+  everything else including the whole Ambiguous class is 1. `visual_width`
+  measures at string level so ZWJ/VS16 sequences count as units.
+  Fixes [#2](https://github.com/Dicklesworthstone/aadc/issues/2).
+  ([`27e94d2`](https://github.com/Dicklesworthstone/aadc/commit/27e94d20d5b6a963dc3ca34577755581dca7c81b) -- 2026-09-06)
+- **Config-file values are validated before merging** -- `validate_args` only
+  ran against CLI arguments, so `~/.config/aadc/config.toml` or `.aadc.toml`
+  could inject `tab_width = 0` (divide-by-zero panic in `expand_tabs`),
+  `tab_width > 16`, `max_iters = 0` (silently disabled every pass) or
+  `min_score` outside `0.0..=1.0`. `load_config_file` now applies the same
+  bounds checks, with errors anchored to the offending file path.
+  ([`4f4761d`](https://github.com/Dicklesworthstone/aadc/commit/4f4761d10cbecc94ac02c1e264ecbdb7ea4cf008) -- 2026-04-24)
+
+### Documentation
+
+- **README: what aadc leaves alone** -- documents the GFM-table, tagged-fence
+  and front-matter exclusions and the right-border invariant.
+  ([`6e55e65`](https://github.com/Dicklesworthstone/aadc/commit/6e55e6503fa0047e3a94607c1968e063047bf7de) -- 2026-09-06)
+- **NEXT_STEPS_PLAN.md** -- reality-check bridge plan toward a first release.
+  ([`7c3c782`](https://github.com/Dicklesworthstone/aadc/commit/7c3c7823220181c7b6e04e62840f8bd92ba4ffa2) -- 2026-04-22)
+- **AGENTS.md** -- require the OpenAI File Downloader user-agent on curl/web
+  fetches.
+  ([`4294b2c`](https://github.com/Dicklesworthstone/aadc/commit/4294b2cfe1a81e9e3d6ce0c7dd80c699608d347a) -- 2026-08-21)
+
+### Dependencies
+
+- **unicode-width** -- now a direct dependency (it was already in the graph via
+  rich_rust); see the width fix above.
+  ([`27e94d2`](https://github.com/Dicklesworthstone/aadc/commit/27e94d20d5b6a963dc3ca34577755581dca7c81b) -- 2026-09-06)
+- **notify 6 -> 8.2, similar 2 -> 3, toml 0.8 -> 1.1, criterion 0.5 -> 0.8** --
+  four major bumps plus 89 further lockfile entries; no source changes needed.
+  ([`2965095`](https://github.com/Dicklesworthstone/aadc/commit/2965095ca1a39baf18202481b985812003bd4869) -- 2026-07-24)
+- **Cargo.lock regenerated** from transitive resolution.
+  ([`c89057e`](https://github.com/Dicklesworthstone/aadc/commit/c89057e082128bf290757bde5c01e51adae5085c) -- 2026-04-22)
+
+### Build and Toolchain
+
+- **Pinned toolchain** -- `rust-toolchain.toml` pins `nightly-2026-08-31`
+  (with `rustfmt` and `clippy`); the clippy gate is run against this exact
+  nightly.
+  ([`fe5f37c`](https://github.com/Dicklesworthstone/aadc/commit/fe5f37c104f9a134ed8bda1d0460736cbaea3def) -- 2026-09-04)
+- **Parallel rustc front-end** -- `.cargo/config.toml` adds `-Z threads=4`.
+  ([`e70677e`](https://github.com/Dicklesworthstone/aadc/commit/e70677ebe2ecddadca416f83da894398caeed536) -- 2026-08-11)
+
+### Housekeeping
+
+- **Version 0.1.1** -- `Cargo.toml` / `Cargo.lock` bump for the first tagged
+  release.
+- **CHANGELOG.md added and rebuilt** from git history with live commit links.
+  ([`ae1e1f3`](https://github.com/Dicklesworthstone/aadc/commit/ae1e1f3a2f760d1000f4e355319dd8a7fcd4a32d),
+   [`5f32872`](https://github.com/Dicklesworthstone/aadc/commit/5f328729e02374075ff67277246826edde1cc5e9) -- 2026-03-21)
+- **gitignore** -- beads runtime metadata, swarm scratch, `.DS_Store`.
+  ([`58cc7f7`](https://github.com/Dicklesworthstone/aadc/commit/58cc7f7e68f9900a5c2c69f3ce01ceb4fba07af5),
+   [`b2de280`](https://github.com/Dicklesworthstone/aadc/commit/b2de280204ff1c9cab1b941d1c2e0ad47dfef107) -- 2026-04-23 / 2026-04-25)
+- **Issue-store syncs and E2E log refresh** during the April reality-check pass.
+  ([`f9a4b15`](https://github.com/Dicklesworthstone/aadc/commit/f9a4b15fc5afd88eea7b150c42ff4caffbb56989),
+   [`40b28d6`](https://github.com/Dicklesworthstone/aadc/commit/40b28d654c06ba47176d48b268734af65aa47f1b),
+   [`8635cbc`](https://github.com/Dicklesworthstone/aadc/commit/8635cbcbfa37a474e7f407281fbc8f64e2a6e3fb),
+   [`b2de44f`](https://github.com/Dicklesworthstone/aadc/commit/b2de44f6b49881a82f4a98ca62e0d313a579a3ae),
+   [`e7fe3ab`](https://github.com/Dicklesworthstone/aadc/commit/e7fe3abf725cc78643315117e4ab332dc743aa54) -- 2026-04-22)
+
+---
+
+## [0.1.0] -- pre-tag history (never tagged)
 
 ### Core Correction Engine
 
@@ -310,7 +408,7 @@ Correct handling of wide and multi-byte characters.
 
 ## Commit Index
 
-All 49 commits on `main`, oldest first.
+All 69 commits on `main` preceding the v0.1.1 release commit, oldest first.
 
 | Date | Hash | Summary |
 |------|------|---------|
@@ -363,3 +461,22 @@ All 49 commits on `main`, oldest first.
 | 2026-02-22 | [`bc5b8c4`](https://github.com/Dicklesworthstone/aadc/commit/bc5b8c46e4fef629dfb420c48ef950849af6ff05) | Update README license references |
 | 2026-02-25 | [`3bfd864`](https://github.com/Dicklesworthstone/aadc/commit/3bfd86426d591367c2d8450b8644516804bd901b) | Add cass tool reference to AGENTS.md |
 | 2026-03-13 | [`57f6537`](https://github.com/Dicklesworthstone/aadc/commit/57f65375ad67212dd59c79b05dda949c6aa13e4d) | Remove stale macOS resource fork file |
+| 2026-03-21 | [`ae1e1f3`](https://github.com/Dicklesworthstone/aadc/commit/ae1e1f3a2f760d1000f4e355319dd8a7fcd4a32d) | Add comprehensive CHANGELOG.md documenting project history |
+| 2026-03-21 | [`5f32872`](https://github.com/Dicklesworthstone/aadc/commit/5f328729e02374075ff67277246826edde1cc5e9) | Rebuild CHANGELOG.md from git history with live commit links |
+| 2026-04-22 | [`c89057e`](https://github.com/Dicklesworthstone/aadc/commit/c89057e082128bf290757bde5c01e51adae5085c) | Regenerate Cargo.lock from transitive resolution |
+| 2026-04-22 | [`f9a4b15`](https://github.com/Dicklesworthstone/aadc/commit/f9a4b15fc5afd88eea7b150c42ff4caffbb56989) | Sync issue store state (reality-check pass) |
+| 2026-04-22 | [`40b28d6`](https://github.com/Dicklesworthstone/aadc/commit/40b28d654c06ba47176d48b268734af65aa47f1b) | Refresh tests/e2e_results.log |
+| 2026-04-22 | [`7c3c782`](https://github.com/Dicklesworthstone/aadc/commit/7c3c7823220181c7b6e04e62840f8bd92ba4ffa2) | Add NEXT_STEPS_PLAN.md |
+| 2026-04-22 | [`8635cbc`](https://github.com/Dicklesworthstone/aadc/commit/8635cbcbfa37a474e7f407281fbc8f64e2a6e3fb) | Add bd-b1f (stability policy for --json output) |
+| 2026-04-22 | [`b2de44f`](https://github.com/Dicklesworthstone/aadc/commit/b2de44f6b49881a82f4a98ca62e0d313a579a3ae) | File new backlog items from NEXT_STEPS_PLAN follow-up |
+| 2026-04-22 | [`e7fe3ab`](https://github.com/Dicklesworthstone/aadc/commit/e7fe3abf725cc78643315117e4ab332dc743aa54) | Sync issue store (23 issues touched) |
+| 2026-04-23 | [`58cc7f7`](https://github.com/Dicklesworthstone/aadc/commit/58cc7f7e68f9900a5c2c69f3ce01ceb4fba07af5) | Gitignore beads runtime metadata + swarm coordination scratch |
+| 2026-04-24 | [`4f4761d`](https://github.com/Dicklesworthstone/aadc/commit/4f4761d10cbecc94ac02c1e264ecbdb7ea4cf008) | Validate file-config values before merging into runtime Config |
+| 2026-04-25 | [`b2de280`](https://github.com/Dicklesworthstone/aadc/commit/b2de280204ff1c9cab1b941d1c2e0ad47dfef107) | Gitignore .DS_Store |
+| 2026-07-24 | [`2965095`](https://github.com/Dicklesworthstone/aadc/commit/2965095ca1a39baf18202481b985812003bd4869) | Bump notify 6 -> 8.2, similar 2 -> 3, toml 0.8 -> 1.1, criterion 0.5 -> 0.8 |
+| 2026-08-11 | [`e70677e`](https://github.com/Dicklesworthstone/aadc/commit/e70677ebe2ecddadca416f83da894398caeed536) | Enable parallel rustc front-end (-Z threads=4) |
+| 2026-08-21 | [`4294b2c`](https://github.com/Dicklesworthstone/aadc/commit/4294b2cfe1a81e9e3d6ce0c7dd80c699608d347a) | Require OpenAI File Downloader user-agent on curl/web fetches (AGENTS.md) |
+| 2026-09-04 | [`fe5f37c`](https://github.com/Dicklesworthstone/aadc/commit/fe5f37c104f9a134ed8bda1d0460736cbaea3def) | Pin nightly-2026-08-31 |
+| 2026-09-06 | [`19ec9c6`](https://github.com/Dicklesworthstone/aadc/commit/19ec9c6e94d5464192fec46a9f35784c83ab6034) | Stop treating GFM tables and tagged code fences as diagrams (#1) |
+| 2026-09-06 | [`27e94d2`](https://github.com/Dicklesworthstone/aadc/commit/27e94d20d5b6a963dc3ca34577755581dca7c81b) | Measure East-Asian-Ambiguous glyphs as 1 column via unicode-width (#2) |
+| 2026-09-06 | [`6e55e65`](https://github.com/Dicklesworthstone/aadc/commit/6e55e6503fa0047e3a94607c1968e063047bf7de) | Describe the Markdown constructs aadc leaves alone (README) |
