@@ -758,29 +758,29 @@ fn load_config_file(path: &Path) -> Result<FileConfig> {
 /// reject them at the same surface for symmetry with the CLI rules.
 fn validate_file_config(file_config: &FileConfig, path: &Path) -> Result<()> {
     let location = || path.display().to_string();
-    if let Some(score) = file_config.min_score {
-        if !(0.0..=1.0).contains(&score) {
-            return Err(anyhow::anyhow!(
-                "{}: min_score must be between 0.0 and 1.0, got {score}",
-                location()
-            ));
-        }
+    if let Some(score) = file_config.min_score
+        && !(0.0..=1.0).contains(&score)
+    {
+        return Err(anyhow::anyhow!(
+            "{}: min_score must be between 0.0 and 1.0, got {score}",
+            location()
+        ));
     }
-    if let Some(iters) = file_config.max_iters {
-        if iters == 0 {
-            return Err(anyhow::anyhow!(
-                "{}: max_iters must be at least 1",
-                location()
-            ));
-        }
+    if let Some(iters) = file_config.max_iters
+        && iters == 0
+    {
+        return Err(anyhow::anyhow!(
+            "{}: max_iters must be at least 1",
+            location()
+        ));
     }
-    if let Some(width) = file_config.tab_width {
-        if width == 0 || width > 16 {
-            return Err(anyhow::anyhow!(
-                "{}: tab_width must be between 1 and 16, got {width}",
-                location()
-            ));
-        }
+    if let Some(width) = file_config.tab_width
+        && (width == 0 || width > 16)
+    {
+        return Err(anyhow::anyhow!(
+            "{}: tab_width must be between 1 and 16, got {width}",
+            location()
+        ));
     }
     Ok(())
 }
@@ -835,80 +835,80 @@ fn create_config(args: &Args) -> Result<Config> {
         }
 
         // max_iters: use file value if CLI used default (10)
-        if args.max_iters == 10 {
-            if let Some(iters) = file_config.max_iters {
-                config.max_iters = iters;
-            }
+        if args.max_iters == 10
+            && let Some(iters) = file_config.max_iters
+        {
+            config.max_iters = iters;
         }
 
         // tab_width: use file value if CLI used default (4)
-        if args.tab_width == 4 {
-            if let Some(width) = file_config.tab_width {
-                config.tab_width = width;
-            }
+        if args.tab_width == 4
+            && let Some(width) = file_config.tab_width
+        {
+            config.tab_width = width;
         }
 
         // Boolean flags: use file value if CLI flag wasn't set
-        if !args.verbose {
-            if let Some(v) = file_config.verbose {
-                config.verbose = v;
-            }
+        if !args.verbose
+            && let Some(v) = file_config.verbose
+        {
+            config.verbose = v;
         }
 
-        if args.color == ColorMode::Auto {
-            if let Some(c) = file_config.color {
-                config.color = c;
-            }
+        if args.color == ColorMode::Auto
+            && let Some(c) = file_config.color
+        {
+            config.color = c;
         }
 
-        if !args.json {
-            if let Some(j) = file_config.json {
-                config.json = j;
-            }
+        if !args.json
+            && let Some(j) = file_config.json
+        {
+            config.json = j;
         }
 
-        if !args.backup {
-            if let Some(b) = file_config.backup {
-                config.backup = b;
-            }
+        if !args.backup
+            && let Some(b) = file_config.backup
+        {
+            config.backup = b;
         }
 
         // backup_ext: use file value if CLI used default
-        if args.backup_ext == ".bak" {
-            if let Some(ext) = file_config.backup_ext {
-                config.backup_ext = ext;
-            }
+        if args.backup_ext == ".bak"
+            && let Some(ext) = file_config.backup_ext
+        {
+            config.backup_ext = ext;
         }
 
         // Recursive options
-        if !args.recursive {
-            if let Some(r) = file_config.recursive {
-                config.recursive = r;
-            }
+        if !args.recursive
+            && let Some(r) = file_config.recursive
+        {
+            config.recursive = r;
         }
 
-        if args.glob == "*.txt,*.md" {
-            if let Some(g) = file_config.glob {
-                config.glob = g;
-            }
+        if args.glob == "*.txt,*.md"
+            && let Some(g) = file_config.glob
+        {
+            config.glob = g;
         }
 
-        if !args.no_gitignore {
-            if let Some(gi) = file_config.gitignore {
-                config.gitignore = gi;
-            }
+        if !args.no_gitignore
+            && let Some(gi) = file_config.gitignore
+        {
+            config.gitignore = gi;
         }
 
-        if args.max_depth == 0 {
-            if let Some(d) = file_config.max_depth {
-                config.max_depth = d;
-            }
+        if args.max_depth == 0
+            && let Some(d) = file_config.max_depth
+        {
+            config.max_depth = d;
         }
 
-        if !args.all {
-            if let Some(a) = file_config.all {
-                config.all_blocks = a;
-            }
+        if !args.all
+            && let Some(a) = file_config.all
+        {
+            config.all_blocks = a;
         }
     }
 
@@ -1607,7 +1607,7 @@ fn split_table_cells(line: &str) -> Option<Vec<&str>> {
     for (idx, c) in trimmed.char_indices() {
         match c {
             '\\' => backslashes += 1,
-            '|' if backslashes % 2 == 0 => {
+            '|' if backslashes.is_multiple_of(2) => {
                 saw_pipe = true;
                 cells.push(&trimmed[cell_start..idx]);
                 cell_start = idx + 1;
@@ -1974,12 +1974,12 @@ impl Revision {
             } => {
                 let line = &mut lines[*line_idx];
                 let trimmed = line.trim_end();
-                if let Some(last_char) = trimmed.chars().next_back() {
-                    if is_border_char(last_char) {
-                        // Insert spaces before the last character
-                        let prefix = &trimmed[..trimmed.len() - last_char.len_utf8()];
-                        *line = format!("{}{}{}", prefix, " ".repeat(*spaces_to_add), last_char);
-                    }
+                if let Some(last_char) = trimmed.chars().next_back()
+                    && is_border_char(last_char)
+                {
+                    // Insert spaces before the last character
+                    let prefix = &trimmed[..trimmed.len() - last_char.len_utf8()];
+                    *line = format!("{}{}{}", prefix, " ".repeat(*spaces_to_add), last_char);
                 }
             }
             Self::AddSuffixBorder {
@@ -2220,17 +2220,17 @@ fn correct_lines(
     stats.total_lines = total_lines;
 
     // Show line range info in verbose mode
-    if config.verbose {
-        if let Some(ref ranges) = config.lines {
-            console.print(
-                &styles
-                    .header(format!(
-                        "Line ranges: {}",
-                        format_line_ranges(ranges, total_lines)
-                    ))
-                    .to_string(),
-            );
-        }
+    if config.verbose
+        && let Some(ref ranges) = config.lines
+    {
+        console.print(
+            &styles
+                .header(format!(
+                    "Line ranges: {}",
+                    format_line_ranges(ranges, total_lines)
+                ))
+                .to_string(),
+        );
     }
 
     if !config.all_blocks {
@@ -2278,23 +2278,23 @@ fn correct_lines(
     // Correct each block
     for (i, block) in blocks.iter().enumerate() {
         // Check if block overlaps with line ranges (if specified)
-        if let Some(ref ranges) = config.lines {
-            if !block_overlaps_ranges(block, ranges) {
-                if config.verbose {
-                    console.print(
-                        &styles
-                            .dim(format!(
-                                "  Block {}: lines {}-{} (skipped: outside line ranges)",
-                                i + 1,
-                                block.start + 1,
-                                block.end
-                            ))
-                            .to_string(),
-                    );
-                }
-                stats.blocks_skipped += 1;
-                continue;
+        if let Some(ref ranges) = config.lines
+            && !block_overlaps_ranges(block, ranges)
+        {
+            if config.verbose {
+                console.print(
+                    &styles
+                        .dim(format!(
+                            "  Block {}: lines {}-{} (skipped: outside line ranges)",
+                            i + 1,
+                            block.start + 1,
+                            block.end
+                        ))
+                        .to_string(),
+                );
             }
+            stats.blocks_skipped += 1;
+            continue;
         }
 
         if config.verbose {
@@ -2401,12 +2401,11 @@ fn discover_recursive_files(
             };
 
             let entry_path = entry.path();
-            if entry_path.is_file() {
-                if let Some(name) = entry_path.file_name() {
-                    if globs.is_match(name) {
-                        files.insert(entry_path.to_path_buf());
-                    }
-                }
+            if entry_path.is_file()
+                && let Some(name) = entry_path.file_name()
+                && globs.is_match(name)
+            {
+                files.insert(entry_path.to_path_buf());
             }
         }
     }
@@ -3057,18 +3056,18 @@ fn run(args: Args) -> Result<RunOutcome> {
         return watch_and_correct(path, &config, &console, &styles);
     }
 
-    if config.verbose {
-        if let Some(preset) = config.preset {
-            console.print(
-                &styles
-                    .dim(format!(
-                        "Using preset: {:?} (min_score = {:.1})",
-                        preset,
-                        config.effective_min_score()
-                    ))
-                    .to_string(),
-            );
-        }
+    if config.verbose
+        && let Some(preset) = config.preset
+    {
+        console.print(
+            &styles
+                .dim(format!(
+                    "Using preset: {:?} (min_score = {:.1})",
+                    preset,
+                    config.effective_min_score()
+                ))
+                .to_string(),
+        );
     }
 
     if config.recursive {
@@ -3223,14 +3222,14 @@ fn output_json_single(args: &Args, config: &Config, result: &FileResult) -> Resu
     );
 
     // If in-place mode with JSON, still write the file
-    if args.in_place {
-        if let Some(ref path) = args.inputs.first() {
-            if config.backup {
-                create_backup(path, &config.backup_ext)?;
-            }
-            fs::write(path, &corrected_text)
-                .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+    if args.in_place
+        && let Some(ref path) = args.inputs.first()
+    {
+        if config.backup {
+            create_backup(path, &config.backup_ext)?;
         }
+        fs::write(path, &corrected_text)
+            .with_context(|| format!("Failed to write to file: {}", path.display()))?;
     }
 
     Ok(())

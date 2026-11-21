@@ -9,7 +9,68 @@ the pre-tag history of `main` while `Cargo.toml` read `0.1.0`; it was never tagg
 or published. Rather than listing changes in raw diff order, sections are organized
 by capability area so readers can quickly find the history of any feature.
 
-Current version in `Cargo.toml`: **0.1.1**
+Current version in `Cargo.toml`: **0.2.0**
+
+---
+
+## [0.2.0] - 2026-11-21
+
+Performance-optimized release builds (`opt-level = 3`), installer source-build
+and integrity fixes, comprehensive dependency upgrades (clean `cargo audit`),
+golden E2E fixture alignment, and complete CLI documentation.
+
+### Performance
+
+- **Speed-optimized release profile (`opt-level = 3`)** -- switched
+  `[profile.release]` from `opt-level = "z"` to `opt-level = 3` while keeping
+  `lto = true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
+  Paired interleaved benchmarks across small, CJK, large mixed-Markdown, JSON,
+  and 25k-line quick-passthrough workloads show 5%–17% faster execution with
+  identical byte-for-byte output.
+
+### Installer & Bug Fixes
+
+- **Source fallback now respects Cargo target directories and pinned release
+  versions** -- `install.sh` previously cloned the default branch and hardcoded
+  `$TMP/src/target/release/aadc`, breaking installs whenever `CARGO_TARGET_DIR`
+  (absolute or relative) or Cargo's `build.target-dir` config was set and
+  ignoring `--version` during `--from-source` or source fallback. Source builds
+  now check out the exact requested/resolved version ref (failing loudly if an
+  explicit ref does not exist rather than silently building `main`), normalize
+  caller-relative `CARGO_TARGET_DIR`, locate the built binary via Cargo's
+  `--message-format=json-render-diagnostics` / `cargo metadata` output, print
+  the checked-out commit SHA, fail closed on missing/invalid release checksums
+  (with `--no-verify-checksum` opt-out), keep `--verify` as binary self-test
+  (now verifying both `--version` and a sample diagram correction), and support
+  `LOCK_FILE` override. Fixes [#3](https://github.com/Dicklesworthstone/aadc/issues/3).
+- **Latest-tag parsing for minified GitHub API JSON** -- `install.sh` tolerates
+  minified `"tag_name":"vX.Y.Z"` payloads without spaces after the colon.
+  ([`537f9db`](https://github.com/Dicklesworthstone/aadc/commit/537f9dbd3e220fa1401c55ef94cf61b7d362af00))
+- **Updated stale pre-v0.1.1 golden E2E fixtures** -- refreshed
+  `tests/fixtures/large/100_lines.expected.txt`,
+  `tests/fixtures/mixed/prose_with_diagram.expected.txt`, and
+  `tests/fixtures/unicode/heavy_borders.expected.txt` to reflect the v0.1.1
+  single-column Ambiguous-glyph width (`→`) and heavy-border alignment fixes so
+  all 55 E2E bash tests pass.
+
+### Dependencies & Toolchain
+
+- **Clean `cargo audit` (0 vulnerabilities, 0 warnings)** -- upgraded
+  `rich_rust` `0.2.2 -> 0.2.4` (pulling `lru 0.19.1`), `rustix 1.1.4 -> 1.1.6`,
+  `notify 8.2 -> 9.0`, `dirs 6.0 -> 7.0`, `clap 4.5 -> 4.6`, `ctrlc 3.4 -> 3.5`,
+  `similar 3.1 -> 3.2`, `toml 1.1 -> 1.2`, `globset 0.4.21`, `ignore 0.4.34`,
+  `unicode-width 0.2.3`, and `serde_json 1.0.154`.
+- **MSRV updated to Rust 1.91** (`Cargo.toml` `rust-version = "1.91"`) to match
+  `notify 9.0`, and resolved all new Clippy `collapsible_if` /
+  `is_multiple_of` lints cleanly.
+
+### Documentation
+
+- **README & AGENTS.md CLI and test-count sync** -- documented `--config`,
+  `--no-config`, `-P/--preset`, `-L/--lines`, `--color`, and the `hook` /
+  `config` subcommands in `README.md`, updated the Cargo install snippet to
+  `cargo install --git`, and synced test counts to the live totals (247 unit,
+  34 integration, 55 E2E bash tests).
 
 ---
 

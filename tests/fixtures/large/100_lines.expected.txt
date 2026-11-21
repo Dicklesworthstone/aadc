@@ -26,18 +26,18 @@ More text describing authentication.
 
 ## Section 3: Data Processing
 
-╔══════════════════════ ╗
-║ Data Pipeline         ║
+╔══════════════════════╗
+║ Data Pipeline        ║
 ║ Extract → Transform  ║
 ║ → Load into DB       ║
-╚══════════════════════ ╝
+╚══════════════════════╝
 
 Explanation of the ETL process.
 
 ## Section 4: API Endpoints
 
 +----------+     +------------+     +----------+
-| Client|  →  | API Gateway|  →  | Backend   |
+| Client|  →  | API Gateway|  →  | Backend     |
 +----------+     +------------+     +----------+
 
 The client communicates through the gateway.

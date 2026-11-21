@@ -1,8 +1,8 @@
 [package]
 name = "aadc"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 license = "MIT"
 description = "ASCII Art Diagram Corrector: fixes misaligned right borders in ASCII diagrams"
 repository = "https://github.com/Dicklesworthstone/aadc"
@@ -11,17 +11,17 @@ categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
 anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
-ctrlc = "3.4"
-dirs = "6.0"
+clap = { version = "4.6", features = ["derive"] }
+ctrlc = "3.5"
+dirs = "7.0"
 globset = "0.4"
 ignore = "0.4"
-notify = { version = "8.2", default-features = false, features = ["macos_kqueue"] }
-rich_rust = { version = "0.2.0" }
+notify = { version = "9.0", default-features = false, features = ["macos_kqueue"] }
+rich_rust = { version = "0.2.4" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-similar = "3.1"
-toml = "1.1"
+similar = "3.2"
+toml = "1.2"
 unicode-width = "0.2"
 
 [dev-dependencies]
@@ -33,7 +33,7 @@ name = "correction"
 harness = false
 
 [profile.release]
-opt-level = "z"     # Optimize for size
+opt-level = 3       # Optimize for speed
 lto = true          # Link-time optimization
 codegen-units = 1   # Single codegen unit for better optimization
 panic = "abort"     # Smaller binary, no unwinding overhead

@@ -94,11 +94,11 @@ We only use **Cargo** in this project, NEVER any other package manager.
 
 ### Release Profile
 
-The release build optimizes for binary size:
+The release build optimizes for performance:
 
 ```toml
 [profile.release]
-opt-level = "z"     # Optimize for size
+opt-level = 3       # Optimize for speed
 lto = true          # Link-time optimization
 codegen-units = 1   # Single codegen unit for better optimization
 panic = "abort"     # Smaller binary, no unwinding overhead
@@ -202,8 +202,8 @@ cargo test --test integration
 
 | Suite | Count | Command | Description |
 |-------|-------|---------|-------------|
-| Unit Tests | 138 | `cargo test --lib` | Core logic, parsing, scoring |
-| Integration | 20 | `cargo test --test integration` | Rust E2E tests |
+| Unit Tests | 247 | `cargo test --bin aadc` | Core logic, parsing, scoring |
+| Integration | 34 | `cargo test --test integration` | Rust E2E tests |
 | E2E Basic | 18 | `./tests/e2e_basic_cli.sh` | Stdin, files, exit codes |
 | E2E Options | 17 | `./tests/e2e_cli_options.sh` | CLI flags |
 | E2E Fixtures | 20 | `./tests/e2e_fixtures.sh` | Input/expected pairs |
@@ -383,15 +383,22 @@ aadc --all diagram.txt
 | Argument | Short | Description | Default |
 |----------|-------|-------------|---------|
 | `FILE...` | | Input file(s) (stdin if not provided, multiple files supported) | stdin |
+| `--config` | | Path to config file (default: search for `.aadcrc`) | auto-discover |
+| `--no-config` | | Ignore config files | false |
+| `--recursive` | `-r` | Process files recursively in directories | false |
 | `--in-place` | `-i` | Edit file(s) in place | false |
 | `--max-iters` | `-m` | Maximum correction iterations | 10 |
 | `--min-score` | `-s` | Minimum score threshold (0.0-1.0) | 0.5 |
 | `--preset` | `-P` | Confidence preset: strict (0.8), normal (0.5), aggressive (0.3), relaxed (0.1) | - |
 | `--tab-width` | `-t` | Tab expansion width | 4 |
 | `--all` | `-a` | Process all diagram-like blocks | false |
+| `--lines` | `-L` | Process only specific line ranges (e.g., `10-50`, `1-100,200-250`) | - |
 | `--verbose` | `-v` | Show correction progress | false |
+| `--color` | | Color output: `auto`, `always`, or `never` | `auto` |
 | `--diff` | `-d` | Show unified diff instead of full output | false |
 | `--dry-run` | `-n` | Preview changes (exit 3 if changes would be made) | false |
+| `--watch` | `-w` | Watch file for changes and auto-correct | false |
+| `--backup` | | Create backup file before in-place editing (requires `--in-place`) | false |
 | `--json` | | Output results as JSON | false |
 
 ### rich_rust Integration

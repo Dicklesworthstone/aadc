@@ -17,7 +17,7 @@ The gateway routes requests to appropriate services.
 ## Data Flow
 
 +--------+     +----------+
-| Client|  →  | Server   |
+| Client|  →  | Server    |
 +--------+     +----------+
 
 This shows the basic request flow.

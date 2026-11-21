@@ -56,10 +56,10 @@ BEFORE                          AFTER
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh?$(date +%s)" | bash
 ```
 
-**Or via Cargo:**
+**Or via Cargo (from Git):**
 
 ```bash
-cargo install aadc
+cargo install --git https://github.com/Dicklesworthstone/aadc
 ```
 
 <p><em>Works on Linux and macOS. Auto-detects your platform and downloads the right binary.</em></p>
@@ -269,16 +269,16 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install
 curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh | bash -s -- --easy-mode
 
 # Install specific version
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh | bash -s -- --version v0.2.0
 
-# Build from source instead of downloading binary
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh | bash -s -- --from-source
+# Build a specific release tag from source
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/aadc/main/install.sh | bash -s -- --from-source --version v0.2.0
 ```
 
-### Via Cargo
+### Via Cargo (from Git)
 
 ```bash
-cargo install aadc
+cargo install --git https://github.com/Dicklesworthstone/aadc
 ```
 
 ### From Source
@@ -318,16 +318,21 @@ aadc [OPTIONS] [FILE]
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
+| `--config` |  | auto-discover | Path to config file (default: search for `.aadcrc`) |
+| `--no-config` |  | false | Ignore config files |
 | `--in-place` | `-i` | false | Edit file in place (requires FILE) |
 | `--recursive` | `-r` | false | Process files recursively in directories |
 | `--glob` |  | `*.txt,*.md` | Glob pattern for recursive mode (comma-separated) |
 | `--no-gitignore` |  | false | Do not respect `.gitignore` when recursing |
 | `--max-depth` |  | 0 | Maximum directory depth (0 = unlimited) |
+| `--preset` | `-P` |  | Confidence preset: `strict` (0.8), `normal` (0.5), `aggressive` (0.3), `relaxed` (0.1) |
 | `--max-iters` | `-m` | 10 | Maximum correction iterations per block |
 | `--min-score` | `-s` | 0.5 | Minimum confidence score (0.0-1.0) for applying edits |
 | `--tab-width` | `-t` | 4 | Tab expansion width in spaces |
 | `--all` | `-a` | false | Process all diagram-like blocks, even low-confidence ones |
+| `--lines` | `-L` |  | Process only specific line ranges (e.g., `10-50`, `1-100,200-250`, `50-`, `-100`) |
 | `--verbose` | `-v` | false | Show correction progress |
+| `--color` |  | `auto` | Color output: `auto`, `always`, or `never` |
 | `--diff` | `-d` | false | Show unified diff instead of full output |
 | `--dry-run` | `-n` | false | Preview changes without modifying files (exit 3 if changes would be made) |
 | `--watch` | `-w` | false | Watch file for changes and auto-correct |
@@ -337,6 +342,17 @@ aadc [OPTIONS] [FILE]
 | `--json` |  | false | Output results as JSON (conflicts with `--verbose`/`--diff`) |
 | `--help` | `-h` | | Print help |
 | `--version` | `-V` | | Print version |
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `aadc hook install [--check-only \| --auto-fix] [--patterns ...]` | Install git pre-commit hook |
+| `aadc hook uninstall` | Remove git pre-commit hook |
+| `aadc hook status` | Show git pre-commit hook status |
+| `aadc config init [--global]` | Initialize a new `.aadcrc` config file |
+| `aadc config show` | Show effective configuration (merged file + CLI) |
+| `aadc config path` | Show path to active config file |
 
 ### Exit Codes
 
@@ -602,8 +618,8 @@ cargo fmt --check
 
 | Category | Command | Description |
 |----------|---------|-------------|
-| Unit Tests | `cargo test` | 138 tests covering core logic |
-| Integration | `cargo test --test integration` | 20 E2E Rust tests |
+| Unit Tests | `cargo test --bin aadc` | 247 tests covering core logic |
+| Integration | `cargo test --test integration` | 34 E2E Rust tests |
 | E2E Basic | `./tests/e2e_basic_cli.sh` | Stdin, files, exit codes |
 | E2E Options | `./tests/e2e_cli_options.sh` | CLI flags |
 | E2E Fixtures | `./tests/e2e_fixtures.sh` | Input/expected pairs |
